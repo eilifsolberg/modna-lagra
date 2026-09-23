@@ -1,5 +1,5 @@
 """
-Avokadomaskin – parametrisk konseptmodell (build123d)
+Avokadomaskin - parametrisk konseptmodell (build123d)
 =====================================================
 
 Koordinatsystem (mm):
@@ -16,8 +16,17 @@ kapasitetsrapport, slik at du ser hva som faktisk får plass.
 
 import math
 from build123d import (
-    Box, Cylinder, Sphere, Compound, Location, Pos, Rot, Align, Color,
-    scale, export_step,
+    Box,
+    Cylinder,
+    Sphere,
+    Compound,
+    Location,
+    Pos,
+    Rot,
+    Align,
+    Color,
+    scale,
+    export_step,
 )
 
 # ---------------------------------------------------------------
@@ -25,46 +34,46 @@ from build123d import (
 # ---------------------------------------------------------------
 # Ytre mål
 W, D, H = 600, 600, 800
-WALL = 25                 # vegg inkl. isolasjon
+WALL = 25  # vegg inkl. isolasjon
 
 # Avokado (Hass, middels)
-AVO_D = 70                # diameter
-AVO_L = 100               # lengde
-AVO_ROLLS = True          # True: langakse på tvers av raden (ruller)
-                          # False: langakse langs raden (sklir)
-CLEAR = 4                 # klaring rundt avokado
+AVO_D = 70  # diameter
+AVO_L = 100  # lengde
+AVO_ROLLS = True  # True: langakse på tvers av raden (ruller)
+# False: langakse langs raden (sklir)
+CLEAR = 4  # klaring rundt avokado
 
 # Vertikal inndeling
-BASE_H = 120              # teknisk rom (kjøling/varme, elektronikk)
-TOP_H = 130               # kundeseksjon på toppen
-LOAD_LEVEL = True         # nederste nivå = påfyllingsrenne + skanner
+BASE_H = 120  # teknisk rom (kjøling/varme, elektronikk)
+TOP_H = 130  # kundeseksjon på toppen
+LOAD_LEVEL = True  # nederste nivå = påfyllingsrenne + skanner
 
 # Hyller
-N_SHELVES = 6             # ønsket antall (skriptet sjekker om det passer)
-SHELF_T = 20              # hylletykkelse (isolert skille mellom soner)
-SLOPE_DEG = 3.0           # helning ned mot heisen
-FRONT_CLEAR = 10          # luft mellom hylle og forvegg
-GATE_SPACE = 25           # plass under hylla til portmekanismen
-FILL = 0.7                # andel av plassene som vises fylt
+N_SHELVES = 6  # ønsket antall (skriptet sjekker om det passer)
+SHELF_T = 20  # hylletykkelse (isolert skille mellom soner)
+SLOPE_DEG = 3.0  # helning ned mot heisen
+FRONT_CLEAR = 10  # luft mellom hylle og forvegg
+GATE_SPACE = 25  # plass under hylla til portmekanismen
+FILL = 0.7  # andel av plassene som vises fylt
 
 # Port (escapement) i bakkant av hver rad
-GATE_TRAVEL = 19          # vertikal vandring for sperrene (mm)
-GATE_FLAP_H = 17          # høyde på bakre sperre over hylleplata
-GATE_TAB = 12             # hvor langt vippearmens rulle stikker inn i heissjakten
+GATE_TRAVEL = 19  # vertikal vandring for sperrene (mm)
+GATE_FLAP_H = 17  # høyde på bakre sperre over hylleplata
+GATE_TAB = 12  # hvor langt vippearmens rulle stikker inn i heissjakten
 
 # Heis (bakside)
-ELEV_DEPTH = 150          # dybde på heissjakten
-ELEV_MODE = "hent"        # "hent":     vogna er dokket og slipper ut én avokado
-                          # "legg_inn": skyveren dytter en avokado inn i raden
-                          # "fri":      vogna står fritt ved ELEV_X / ELEV_Z
-DOCK_SHELF = 2            # hylle vogna er dokket mot (1 = nederste lagerhylle)
-DOCK_ROW = 2              # rad vogna er dokket mot (1 = venstre)
-ELEV_X = 0.35             # kun for "fri" (0..1)
-ELEV_Z = 0.55             # kun for "fri" (0..1)
+ELEV_DEPTH = 150  # dybde på heissjakten
+ELEV_MODE = "hent"  # "hent":     vogna er dokket og slipper ut én avokado
+# "legg_inn": skyveren dytter en avokado inn i raden
+# "fri":      vogna står fritt ved ELEV_X / ELEV_Z
+DOCK_SHELF = 2  # hylle vogna er dokket mot (1 = nederste lagerhylle)
+DOCK_ROW = 2  # rad vogna er dokket mot (1 = venstre)
+ELEV_X = 0.35  # kun for "fri" (0..1)
+ELEV_Z = 0.55  # kun for "fri" (0..1)
 
 # Kundeseksjon på toppen
 TOP_SECTIONS = ["Myk moden", "Fast moden", "Moden om noen dager"]
-TOP_SLOPE_DEG = 6.0       # heller mot kunden
+TOP_SLOPE_DEG = 6.0  # heller mot kunden
 
 # Temperatursoner nedenfra og opp (kun farge/etikett i modellen)
 ZONE_TEMPS = [7, 10, 13, 16, 19, 22, 24, 26]
@@ -137,8 +146,11 @@ if SHOW_HOUSING:
     add(box(W - WALL, 0, 0, WALL, D, H), "Sidevegg H", "#d9d9d9")
     add(box(WALL, D - WALL, 0, inner_w, WALL, H - TOP_H), "Bakvegg", "#cfcfcf")
     add(box(WALL, 0, 0, inner_w, WALL, BASE_H), "Frontsokkel", "#bdbdbd")
-add(box(WALL, WALL, 0, inner_w, D - 2 * WALL, BASE_H - 5),
-    "Teknisk rom (kjøl/varme, styring)", "#7a7a7a")
+add(
+    box(WALL, WALL, 0, inner_w, D - 2 * WALL, BASE_H - 5),
+    "Teknisk rom (kjøl/varme, styring)",
+    "#7a7a7a",
+)
 
 # ---------------------------------------------------------------
 # PÅFYLLINGSNIVÅ: renne forfra -> skanner -> heis
@@ -153,15 +165,23 @@ if LOAD_LEVEL:
     add(chute, "Påfyllingsrenne", "#b0b0b0")
     # innkast-åpning i front (ramme)
     add(box(W / 2 - 80, 0, z, 160, WALL, 10), "Innkast – ramme nede", "#444444")
-    add(box(W / 2 - 80, 0, z + AVO_D + 30, 160, WALL, 10), "Innkast – ramme oppe", "#444444")
+    add(
+        box(W / 2 - 80, 0, z + AVO_D + 30, 160, WALL, 10),
+        "Innkast – ramme oppe",
+        "#444444",
+    )
     # multispektralt kamera over renna, nær heisen
     cam_y = shelf_y1 - 190
-    cam_z = z + AVO_D + 12          # plassert rett under hylle 1
-    add(box(W / 2 - 45, cam_y, cam_z, 90, 70, 16),
-        "Multispektralt kamera", "#1f1f1f")
-    add(Pos(W / 2, cam_y + 35, cam_z - 3) * Cylinder(15, 6),
-        "Kameralinse", "#3050a0")
-    avocado(W / 2, cam_y + 35, chute_top - (cam_y + 35 - WALL) * math.tan(slope) + AVO_D / 2, "#557a2b", along_x=AVO_ROLLS)
+    cam_z = z + AVO_D + 12  # plassert rett under hylle 1
+    add(box(W / 2 - 45, cam_y, cam_z, 90, 70, 16), "Multispektralt kamera", "#1f1f1f")
+    add(Pos(W / 2, cam_y + 35, cam_z - 3) * Cylinder(15, 6), "Kameralinse", "#3050a0")
+    avocado(
+        W / 2,
+        cam_y + 35,
+        chute_top - (cam_y + 35 - WALL) * math.tan(slope) + AVO_D / 2,
+        "#557a2b",
+        along_x=AVO_ROLLS,
+    )
     z += level_pitch
 
 # ---------------------------------------------------------------
@@ -185,23 +205,25 @@ rows_w = n_rows * row_pitch
 x_off = WALL + (inner_w - rows_w) / 2
 a_sl = -slope  # vinkel for lokal -> global
 
-y_rear = shelf_len - 4                    # bakre sperre (senter)
-y_front = shelf_len - 6 - slot_len        # fremre pinne (mellom avokado 1 og 2)
+y_rear = shelf_len - 4  # bakre sperre (senter)
+y_front = shelf_len - 6 - slot_len  # fremre pinne (mellom avokado 1 og 2)
 y_piv = (y_rear + y_front) / 2
 d_arm = (y_rear - y_front) / 2
 z_piv = -SHELF_T - 14
-phi0 = math.asin(GATE_TRAVEL / (2 * d_arm))   # ± vippevinkel
-L_tab = shelf_len + GATE_TAB - y_piv          # aksel -> rulle
+phi0 = math.asin(GATE_TRAVEL / (2 * d_arm))  # ± vippevinkel
+L_tab = shelf_len + GATE_TAB - y_piv  # aksel -> rulle
 rear_len = GATE_FLAP_H - (z_piv + d_arm * math.sin(phi0))
 front_len = -2 - (z_piv - d_arm * math.sin(phi0))
-TAB_X = row_pitch / 2 - 12                    # rullens sideforskyvning fra radsenter
+TAB_X = row_pitch / 2 - 12  # rullens sideforskyvning fra radsenter
 
 
 def to_world(base, lx, ly, lz):
     """Lokalt hyllepunkt -> globale koordinater."""
-    return (WALL + lx,
-            shelf_y0 + ly * math.cos(a_sl) - lz * math.sin(a_sl),
-            base + ly * math.sin(a_sl) + lz * math.cos(a_sl))
+    return (
+        WALL + lx,
+        shelf_y0 + ly * math.cos(a_sl) - lz * math.sin(a_sl),
+        base + ly * math.sin(a_sl) + lz * math.cos(a_sl),
+    )
 
 
 def row_cx(r):
@@ -222,7 +244,11 @@ def gate(cxl, released=False, flap_folded=False):
         (Rot(0, 90, 0) * Cylinder(4, 100), "Port – aksel", "#9e9e9e"),
         (box(-4, -d_arm - 8, -3, 8, 2 * d_arm + 16, 6), "Port – vippearm", "#546e7a"),
         (box(TAB_X - 4, -6, -3, 8, L_tab + 6, 6), "Port – sidearm", "#546e7a"),
-        (Pos(TAB_X, L_tab, 0) * Rot(0, 90, 0) * Cylinder(5, 12), "Port – rulle", "#ffca28"),
+        (
+            Pos(TAB_X, L_tab, 0) * Rot(0, 90, 0) * Cylinder(5, 12),
+            "Port – rulle",
+            "#ffca28",
+        ),
     ]
     T = Pos(cxl, y_piv, z_piv) * Rot(math.degrees(phi), 0, 0)
     out += [(T * shp, lab, col) for shp, lab, col in rocker]
@@ -231,25 +257,53 @@ def gate(cxl, released=False, flap_folded=False):
     z_r = z_piv + d_arm * math.sin(phi)
     top_r = z_r + rear_len
     hinge_z = top_r - GATE_FLAP_H - 1
-    out.append((box(cxl - 10, y_rear - 2.5, z_r, 20, 5, hinge_z - z_r),
-                "Port – bakre stolpe", "#c0392b"))
-    out.append((Pos(cxl, y_rear, hinge_z) * Rot(0, 90, 0) * Cylinder(3, 36),
-                "Port – klaffhengsel", "#7f8c8d"))
+    out.append(
+        (
+            box(cxl - 10, y_rear - 2.5, z_r, 20, 5, hinge_z - z_r),
+            "Port – bakre stolpe",
+            "#c0392b",
+        )
+    )
+    out.append(
+        (
+            Pos(cxl, y_rear, hinge_z) * Rot(0, 90, 0) * Cylinder(3, 36),
+            "Port – klaffhengsel",
+            "#7f8c8d",
+        )
+    )
     flap = box(-18, -2, 0, 36, 4, GATE_FLAP_H + 1)
     fold = 80 if flap_folded else 0
-    out.append((Pos(cxl, y_rear, hinge_z) * Rot(fold, 0, 0) * flap,
-                "Port – klaff (enveis)", "#e74c3c"))
+    out.append(
+        (
+            Pos(cxl, y_rear, hinge_z) * Rot(fold, 0, 0) * flap,
+            "Port – klaff (enveis)",
+            "#e74c3c",
+        )
+    )
 
     # Fremre pinne
     z_f = z_piv - d_arm * math.sin(phi)
-    out.append((Pos(cxl, y_front, z_f) * Cylinder(4, front_len, align=(Align.CENTER, Align.CENTER, Align.MIN)),
-                "Port – fremre pinne", "#c0392b"))
-    out.append((Pos(cxl, y_front, z_f + front_len) * Sphere(4), "Port – pinnetopp", "#c0392b"))
+    out.append(
+        (
+            Pos(cxl, y_front, z_f)
+            * Cylinder(4, front_len, align=(Align.CENTER, Align.CENTER, Align.MIN)),
+            "Port – fremre pinne",
+            "#c0392b",
+        )
+    )
+    out.append(
+        (Pos(cxl, y_front, z_f + front_len) * Sphere(4), "Port – pinnetopp", "#c0392b")
+    )
 
     # Faste braketter under hylla
     for sx in (-50, 26):
-        out.append((box(cxl + sx, y_piv - 8, z_piv - 8, 4, 16, -SHELF_T - (z_piv - 8)),
-                    "Port – brakett", "#78909c"))
+        out.append(
+            (
+                box(cxl + sx, y_piv - 8, z_piv - 8, 4, 16, -SHELF_T - (z_piv - 8)),
+                "Port – brakett",
+                "#78909c",
+            )
+        )
     return out
 
 
@@ -271,7 +325,7 @@ for s in range(n_shelves):
         cxl = row_cx(r)
         plate -= box(cxl - 20, y_rear - 5, -SHELF_T - 1, 40, 10, SHELF_T + 2)
         plate -= Pos(cxl, y_front, -SHELF_T / 2) * Cylinder(6, SHELF_T + 2)
-    local.append((plate, f"Hylle {s+1} ({temp} °C)", zc))
+    local.append((plate, f"Hylle {s + 1} ({temp} °C)", zc))
 
     # Radskillere
     for r in range(n_rows + 1):
@@ -283,16 +337,18 @@ for s in range(n_shelves):
     for r in range(n_rows):
         cxl = row_cx(r)
         is_dock = docked and s == DOCK_SHELF - 1 and r == DOCK_ROW - 1
-        local += gate(cxl,
-                      released=is_dock and ELEV_MODE == "hent",
-                      flap_folded=is_dock and ELEV_MODE == "legg_inn")
+        local += gate(
+            cxl,
+            released=is_dock and ELEV_MODE == "hent",
+            flap_folded=is_dock and ELEV_MODE == "legg_inn",
+        )
         col = RIPE_COLORS[(s + r) % len(RIPE_COLORS)]
         k0, shift = 0, 0
         if is_dock and ELEV_MODE == "hent":
-            k0 = 1          # avokado 1 har rullet over i vugga
+            k0 = 1  # avokado 1 har rullet over i vugga
             dock_origin = to_world(base, cxl, shelf_len, 0)
         if is_dock and ELEV_MODE == "legg_inn":
-            shift = 40      # køen er dyttet ett hakk fremover
+            shift = 40  # køen er dyttet ett hakk fremover
             dock_origin = to_world(base, cxl, shelf_len, 0)
         for k in range(k0, n_fill):
             cy = shelf_len - 6 - slot_len / 2 - k * slot_len - shift
@@ -322,7 +378,11 @@ for i, name in enumerate(TOP_SECTIONS):
     tray = Pos(sx + 3, WALL, top_z) * Rot(TOP_SLOPE_DEG, 0, 0) * tray
     add(tray, f"Toppseksjon: {name}", "#8d6e63")
     # lav kant foran + skiller
-    add(box(sx + 3, WALL - 10, top_z - 12, sec_w - 6, 10, 45), f"Frontkant {name}", "#5d4037")
+    add(
+        box(sx + 3, WALL - 10, top_z - 12, sec_w - 6, 10, 45),
+        f"Frontkant {name}",
+        "#5d4037",
+    )
     div = Pos(sx, WALL, top_z) * Rot(TOP_SLOPE_DEG, 0, 0) * box(0, 0, 0, 6, top_len, 40)
     add(div, "Skiller topp", "#5d4037")
     # avokadoer samlet foran (ruller mot kunden)
@@ -336,8 +396,11 @@ for i, name in enumerate(TOP_SECTIONS):
 
 if SHOW_HOUSING:
     # topplate bak (dekker heisens toppstasjon)
-    add(box(WALL, D - WALL - ELEV_DEPTH, H - 20, inner_w, ELEV_DEPTH + WALL, 20),
-        "Topplate over heis", "#cfcfcf")
+    add(
+        box(WALL, D - WALL - ELEV_DEPTH, H - 20, inner_w, ELEV_DEPTH + WALL, 20),
+        "Topplate over heis",
+        "#cfcfcf",
+    )
 
 # ---------------------------------------------------------------
 # HEIS (X-Z-portal på baksiden) MED DETALJERT VUGGE
@@ -362,12 +425,14 @@ x_travel0 = WALL + 30
 x_travel1 = W - WALL - 30
 z_travel0 = storage_z0
 z_travel1 = H - 40
-SHAFT = D - WALL - shelf_y1        # sjaktdybde i v-retning
+SHAFT = D - WALL - shelf_y1  # sjaktdybde i v-retning
 
-if dock_origin is None:            # "fri" eller ugyldig dokkposisjon
-    dock_origin = (x_travel0 + ELEV_X * (x_travel1 - x_travel0),
-                   shelf_y1,
-                   z_travel0 + ELEV_Z * (z_travel1 - z_travel0))
+if dock_origin is None:  # "fri" eller ugyldig dokkposisjon
+    dock_origin = (
+        x_travel0 + ELEV_X * (x_travel1 - x_travel0),
+        shelf_y1,
+        z_travel0 + ELEV_Z * (z_travel1 - z_travel0),
+    )
 ox, oy, oz = dock_origin
 C = Pos(ox, oy, oz)
 
@@ -380,7 +445,11 @@ def cbox(u, v, w, du, dv, dw):
 for zr in (z_travel0 - 30, z_travel1):
     add(box(WALL, D - WALL - 24, zr, inner_w, 24, 18), "X-skinne", "#607d8b")
 col_z0, col_z1 = z_travel0 - 12, z_travel1
-add(box(ox - 20, oy + 126, col_z0, 40, SHAFT - 126, col_z1 - col_z0), "Z-aktuator (søyle)", "#455a64")
+add(
+    box(ox - 20, oy + 126, col_z0, 40, SHAFT - 126, col_z1 - col_z0),
+    "Z-aktuator (søyle)",
+    "#455a64",
+)
 add(box(ox - 8, oy + 120, col_z0, 16, 6, col_z1 - col_z0), "Z-lineærskinne", "#b0bec5")
 
 # Vogn
@@ -397,14 +466,17 @@ for sgn in (-1, 1):
 add(cbox(-CR_W / 2 + 2, 60, 8, 8, 14, 10), "Sensor: avokado i vugga", "#212121")
 
 # Tunge + solenoid som betjener portens rulle
-tongue_top = tab_roller_z(-phi0) + 5          # rullens topp når porten er åpen
+tongue_top = tab_roller_z(-phi0) + 5  # rullens topp når porten er åpen
 if ELEV_MODE == "hent":
-    tv0 = GATE_TAB - 8                          # tunga fremme, over rulla
+    tv0 = GATE_TAB - 8  # tunga fremme, over rulla
 else:
-    tv0 = 24                                    # tunga trukket inn
+    tv0 = 24  # tunga trukket inn
 add(cbox(TAB_X - 7, tv0, tongue_top, 14, 30, 5), "Tunge", "#e65100")
-add(cbox(TAB_X - 12, 30, tongue_top - 4, 24, 40, -13 - (tongue_top - 4)),
-    "Solenoid for tunge", "#424242")
+add(
+    cbox(TAB_X - 12, 30, tongue_top - 4, 24, 40, -13 - (tongue_top - 4)),
+    "Solenoid for tunge",
+    "#424242",
+)
 
 # Skyver drevet av en liten lineæraktuator over vugga
 push_face = 76 if ELEV_MODE != "legg_inn" else 30
@@ -435,7 +507,9 @@ if __name__ == "__main__":
     print(" PORT OG HEIS")
     print("=" * 56)
     print(f" Vippevinkel porter:        ±{math.degrees(phi0):.1f}°")
-    print(f" Dokk-senkning (tunge):     {tab_roller_z(phi0) - tab_roller_z(-phi0):.0f} mm")
+    print(
+        f" Dokk-senkning (tunge):     {tab_roller_z(phi0) - tab_roller_z(-phi0):.0f} mm"
+    )
     print(f" Skyverslag inn i rad:      {76 - (-6):.0f} mm")
     print(f" Vugge innvendig bredde:    {CR_W:.0f} mm")
     print("=" * 56)
@@ -446,12 +520,16 @@ if __name__ == "__main__":
     print(f" Avokado per rad:           {per_row}")
     print(f" Avokado per hylle:         {n_rows * per_row}")
     print(f" Nivåhøyde (inkl. helning): {level_pitch:.0f} mm")
-    print(f" Nivåer som får plass:      {n_levels_fit}"
-          + ("  (1 brukt til påfylling)" if LOAD_LEVEL else ""))
+    print(
+        f" Nivåer som får plass:      {n_levels_fit}"
+        + ("  (1 brukt til påfylling)" if LOAD_LEVEL else "")
+    )
     print(f" Lagringshyller i modellen: {n_shelves}  (ønsket {N_SHELVES})")
     print(f" Total lagerkapasitet:      {n_shelves * n_rows * per_row}")
     if n_shelves < N_SHELVES:
-        need = (N_SHELVES + (1 if LOAD_LEVEL else 0)) * level_pitch + drop + BASE_H + TOP_H
+        need = (
+            (N_SHELVES + (1 if LOAD_LEVEL else 0)) * level_pitch + drop + BASE_H + TOP_H
+        )
         print(f" ! {N_SHELVES} hyller krever ca. {need:.0f} mm total høyde.")
     print("=" * 56)
 
