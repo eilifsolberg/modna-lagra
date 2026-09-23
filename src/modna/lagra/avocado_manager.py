@@ -15,18 +15,18 @@ prints a capacity report, so you can see what actually fits.
 """
 
 import math
+
 from build123d import (
+    Align,
     Box,
-    Cylinder,
-    Sphere,
+    Color,
     Compound,
-    Location,
+    Cylinder,
     Pos,
     Rot,
-    Align,
-    Color,
-    scale,
+    Sphere,
     export_step,
+    scale,
 )
 
 # ---------------------------------------------------------------
@@ -544,11 +544,11 @@ if __name__ == "__main__":
     # The viewer panel must be open (click the OCP icon in VS Code).
     # Parts are shown with names and colours, and can be hidden in the tree view.
     try:
-        from ocp_vscode import show, set_defaults, Camera
+        from ocp_vscode import Camera, set_defaults, show
 
         set_defaults(reset_camera=Camera.KEEP)  # keep camera angle on re-run
         show(model)
     except ImportError:
         print(" (ocp_vscode not installed – skipping 3D view)")
-    except Exception as e:  # e.g. the viewer panel is not open
+    except Exception as e:  # noqa: BLE001 - e.g. the viewer panel is not open
         print(f" (Could not show in OCP CAD Viewer: {e})")
