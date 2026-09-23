@@ -46,7 +46,6 @@ CLEAR = 4  # clearance around avocado
 # Vertical layout
 BASE_H = 120  # technical compartment (cooling/heating, electronics)
 TOP_H = 130  # customer section on top
-LOAD_LEVEL = True  # bottom level = loading chute + scanner
 
 # Shelves
 N_SHELVES = 6  # desired number (the script checks whether it fits)
@@ -55,6 +54,7 @@ SLOPE_DEG = 3.0  # downward slope towards the elevator
 FRONT_CLEAR = 10  # gap between shelf and front wall
 GATE_SPACE = 25  # space under the shelf for the gate mechanism
 FILL = 0.7  # fraction of slots shown filled
+LOAD_ROW = 3  # row on the bottom shelf that staff fill from the front (0 = none)
 
 # Gate (escapement) at the rear end of each row
 GATE_TRAVEL = 19  # vertical travel of the stops (mm)
@@ -63,13 +63,24 @@ GATE_TAB = 12  # how far the rocker arm's roller protrudes into the elevator sha
 
 # Elevator (rear side)
 ELEV_DEPTH = 150  # depth of the elevator shaft
-ELEV_MODE = "fetch"  # "fetch":  the carriage is docked and releases one avocado
+ELEV_MODE = "scan"  # "fetch":  the carriage is docked and releases one avocado
 # "insert": the pusher pushes an avocado into the row
+# "scan":   the carriage is up in the scan station
 # "free":   the carriage is free-standing at ELEV_X / ELEV_Z
 DOCK_SHELF = 2  # shelf the carriage is docked against (1 = lowest storage shelf)
 DOCK_ROW = 2  # row the carriage is docked against (1 = left)
 ELEV_X = 0.35  # only for "free" (0..1)
 ELEV_Z = 0.55  # only for "free" (0..1)
+
+# Scan station at the top of the elevator shaft (multispectral camera + LEDs).
+# The back of the machine is raised to make room for it above the height where
+# the carriage delivers to the customer section.
+SCAN_X = 0.5  # X position of the scan station (0..1 of the elevator's X travel)
+CAM_SIDE = 0  # camera's sideways offset from the avocado centre (0 = top-down)
+CAM_UP = 145  # camera's height above the avocado centre
+CAM_BODY = (60, 60, 25)  # camera + LED holder: width, height, depth (view axis)
+SCAN_CLEAR = 15  # clearance between camera and the carriage passing below it
+ROOF_T = 20  # roof of the raised back
 
 # Customer section on top
 TOP_SECTIONS = ["Soft ripe", "Firm ripe", "Ripe in a few days"]
@@ -99,8 +110,41 @@ level_pitch = AVO_D + CLEAR + SHELF_T + GATE_SPACE
 storage_z0 = BASE_H
 storage_z1 = H - TOP_H
 n_levels_fit = int((storage_z1 - storage_z0 - drop) // level_pitch)
-n_storage_fit = n_levels_fit - (1 if LOAD_LEVEL else 0)
-n_shelves = min(N_SHELVES, n_storage_fit)
+n_shelves = min(N_SHELVES, n_levels_fit)
+load_row = LOAD_ROW if 1 <= LOAD_ROW <= n_rows else 0
+
+# Customer section on top
+top_z = H - TOP_H + 20
+top_len = shelf_y1 - WALL - 5
+top_slope = math.radians(TOP_SLOPE_DEG)
+top_drop = top_len * math.tan(top_slope)
+
+# Elevator travel. The carriage is built around a dock origin at the
+# shelf's rear edge (see ELEVATOR); it reaches CARRIAGE_UP above that
+# origin (top of the carriage plate, behind the cradle), and an avocado in
+# the cradle sits at cradle_avo (u, v, w) relative to it. Above the cradle
+# itself nothing is higher than the avocado, so the camera can sit there.
+CARRIAGE_UP = 100
+cradle_avo = (0, 76 - AVO_D / 2, -8 + AVO_D / 2)
+cradle_top = cradle_avo[2] + AVO_D / 2
+x_travel0 = WALL + 30
+x_travel1 = W - WALL - 30
+z_travel0 = storage_z0
+z_deliver = top_z + top_len * math.sin(top_slope)  # rear end of the top trays
+
+# Scan station: the camera looks down (or sideways/down if CAM_SIDE > 0) into
+# the cradle. Its lowest point must clear the avocado in the cradle when the
+# carriage delivers to the top section below it.
+cam_tilt = math.atan2(CAM_UP, CAM_SIDE)  # below horizontal
+cam_half_w = CAM_BODY[0] / 2 * math.cos(cam_tilt) + CAM_BODY[2] / 2 * math.sin(cam_tilt)
+lens_reach = (CAM_BODY[2] / 2 + 6) * math.sin(cam_tilt)  # lens tip
+cam_lo = cradle_avo[2] + CAM_UP - max(cam_half_w, lens_reach)  # rel. dock origin
+cam_hi = cradle_avo[2] + CAM_UP + cam_half_w
+scan_x = x_travel0 + SCAN_X * (x_travel1 - x_travel0)
+z_scan = z_deliver + cradle_top + SCAN_CLEAR - cam_lo
+z_travel1 = max(z_scan, z_deliver)  # highest dock origin
+z_rail = z_travel1 + CARRIAGE_UP + SCAN_CLEAR  # upper X rail (bottom)
+h_back = max(z_rail + 18, z_scan + cam_hi + 10) + ROOF_T
 
 # ---------------------------------------------------------------
 # HELPER FUNCTIONS
@@ -144,47 +188,35 @@ RIPE_COLORS = ["#2f3a1c", "#3f5a22", "#557a2b", "#6b9a33", "#86b83e", "#9fcf4c"]
 if SHOW_HOUSING:
     add(box(0, 0, 0, WALL, D, H), "Side wall L", "#d9d9d9")
     add(box(W - WALL, 0, 0, WALL, D, H), "Side wall R", "#d9d9d9")
-    add(box(WALL, D - WALL, 0, inner_w, WALL, H - TOP_H), "Rear wall", "#cfcfcf")
     add(box(WALL, 0, 0, inner_w, WALL, BASE_H), "Front plinth", "#bdbdbd")
+    # raised back over the elevator shaft, houses the scan station
+    back_y0 = shelf_y1 - WALL
+    back_d = D - back_y0
+    add(box(WALL, D - WALL, 0, inner_w, WALL, h_back - ROOF_T), "Rear wall", "#cfcfcf")
+    add(box(0, back_y0, H, WALL, back_d, h_back - H), "Raised back – side L", "#d9d9d9")
+    add(
+        box(W - WALL, back_y0, H, WALL, back_d, h_back - H),
+        "Raised back – side R",
+        "#d9d9d9",
+    )
+    add(
+        box(WALL, back_y0, H, inner_w, WALL, h_back - ROOF_T - H),
+        "Raised back – front",
+        "#cfcfcf",
+    )
+    add(
+        box(0, back_y0, h_back - ROOF_T, W, back_d, ROOF_T),
+        "Raised back – roof",
+        "#cfcfcf",
+    )
+# stops at the elevator shaft, so the carriage can reach the bottom shelf
 add(
-    box(WALL, WALL, 0, inner_w, D - 2 * WALL, BASE_H - 5),
+    box(WALL, WALL, 0, inner_w, shelf_y1 - WALL, BASE_H - 5),
     "Technical compartment (cooling/heating, control)",
     "#7a7a7a",
 )
 
-# ---------------------------------------------------------------
-# LOADING LEVEL: chute from the front -> scanner -> elevator
-# ---------------------------------------------------------------
 z = storage_z0
-if LOAD_LEVEL:
-    chute_w = row_pitch * 1.3
-    chute_len = shelf_y1 - WALL
-    chute_top = z + chute_len * math.tan(slope) + 5
-    chute = box(0, 0, -SHELF_T / 2, chute_w, chute_len, SHELF_T / 2)
-    chute = Pos(W / 2 - chute_w / 2, WALL, chute_top) * Rot(-SLOPE_DEG, 0, 0) * chute
-    add(chute, "Loading chute", "#b0b0b0")
-    # loading opening in the front (frame)
-    add(
-        box(W / 2 - 80, 0, z, 160, WALL, 10), "Loading opening – lower frame", "#444444"
-    )
-    add(
-        box(W / 2 - 80, 0, z + AVO_D + 30, 160, WALL, 10),
-        "Loading opening – upper frame",
-        "#444444",
-    )
-    # multispectral camera above the chute, near the elevator
-    cam_y = shelf_y1 - 190
-    cam_z = z + AVO_D + 12  # placed directly below shelf 1
-    add(box(W / 2 - 45, cam_y, cam_z, 90, 70, 16), "Multispectral camera", "#1f1f1f")
-    add(Pos(W / 2, cam_y + 35, cam_z - 3) * Cylinder(15, 6), "Camera lens", "#3050a0")
-    avocado(
-        W / 2,
-        cam_y + 35,
-        chute_top - (cam_y + 35 - WALL) * math.tan(slope) + AVO_D / 2,
-        "#557a2b",
-        along_x=AVO_ROLLS,
-    )
-    z += level_pitch
 
 # ---------------------------------------------------------------
 # STORAGE SHELVES WITH GATE MECHANISM
@@ -346,6 +378,9 @@ for s in range(n_shelves):
             flap_folded=is_dock and ELEV_MODE == "insert",
         )
         col = RIPE_COLORS[(s + r) % len(RIPE_COLORS)]
+        is_load = s == 0 and r == load_row - 1
+        if is_load:
+            col = "#7d8a5c"  # not yet scanned
         k0, shift = 0, 0
         if is_dock and ELEV_MODE == "fetch":
             k0 = 1  # avocado 1 has rolled over into the cradle
@@ -358,7 +393,25 @@ for s in range(n_shelves):
             a = scale(Sphere(1), by=(AVO_L / 2, AVO_D / 2, AVO_D / 2))
             if not AVO_ROLLS:
                 a = Rot(0, 0, 90) * a
-            local.append((Pos(cxl, cy, AVO_D / 2 + 1) * a, "Avocado", col))
+            lab = "Avocado (loaded, not scanned)" if is_load else "Avocado"
+            local.append((Pos(cxl, cy, AVO_D / 2 + 1) * a, lab, col))
+        if is_load:
+            # opening in the front where staff fill the loading row
+            for fz in (-SHELF_T - 10, AVO_D + 20):
+                local.append(
+                    (
+                        box(
+                            cxl - row_pitch / 2,
+                            -FRONT_CLEAR - WALL,
+                            fz,
+                            row_pitch,
+                            WALL,
+                            10,
+                        ),
+                        "Loading opening – frame",
+                        "#444444",
+                    )
+                )
 
     for shp, lab, col in local:
         add(T * shp, lab, col)
@@ -368,11 +421,7 @@ for s in range(n_shelves):
 # ---------------------------------------------------------------
 # CUSTOMER SECTION ON TOP
 # ---------------------------------------------------------------
-top_z = H - TOP_H + 20
 sec_w = inner_w / len(TOP_SECTIONS)
-top_len = shelf_y1 - WALL - 5
-top_slope = math.radians(TOP_SLOPE_DEG)
-top_drop = top_len * math.tan(top_slope)
 top_colors = ["#2f3a1c", "#557a2b", "#86b83e"]
 
 for i, name in enumerate(TOP_SECTIONS):
@@ -397,13 +446,6 @@ for i, name in enumerate(TOP_SECTIONS):
             az = top_z + (ay - WALL) * math.tan(top_slope) + AVO_D / 2
             avocado(ax, ay, az, top_colors[i], along_x=False)
 
-if SHOW_HOUSING:
-    # rear top plate (covers the elevator's top station)
-    add(
-        box(WALL, D - WALL - ELEV_DEPTH, H - 20, inner_w, ELEV_DEPTH + WALL, 20),
-        "Top plate above elevator",
-        "#cfcfcf",
-    )
 
 # ---------------------------------------------------------------
 # ELEVATOR (X-Z gantry at the rear) WITH DETAILED CRADLE
@@ -423,13 +465,17 @@ if SHOW_HOUSING:
 #   flap and pushes the whole queue one step up the slope. The flap snaps
 #   up behind the avocado and holds it in place.
 #   The same pusher also delivers to the customer sections on top.
+# Scan (ELEV_MODE = "scan"):
+#   After fetching an avocado from the loading row on the bottom shelf, the
+#   carriage moves to SCAN_X and rises to the scan station. The camera looks
+#   straight down into the cradle; the pusher's motor and rail sit under the
+#   cradle so nothing blocks the view. The avocado is then placed on the shelf
+#   for its ripeness (or directly in the customer section).
 
-x_travel0 = WALL + 30
-x_travel1 = W - WALL - 30
-z_travel0 = storage_z0
-z_travel1 = H - 40
 SHAFT = D - WALL - shelf_y1  # shaft depth in the v direction
 
+if ELEV_MODE == "scan":
+    dock_origin = (scan_x, shelf_y1, z_scan)
 if dock_origin is None:  # "free" or invalid dock position
     dock_origin = (
         x_travel0 + ELEV_X * (x_travel1 - x_travel0),
@@ -445,9 +491,9 @@ def cbox(u, v, w, du, dv, dw):
 
 
 # Gantry: X rails at the bottom and top, Z column with linear rail
-for zr in (z_travel0 - 30, z_travel1):
+for zr in (z_travel0 - 30, z_rail):
     add(box(WALL, D - WALL - 24, zr, inner_w, 24, 18), "X rail", "#607d8b")
-col_z0, col_z1 = z_travel0 - 12, z_travel1
+col_z0, col_z1 = z_travel0 - 12, z_rail
 add(
     box(ox - 20, oy + 126, col_z0, 40, SHAFT - 126, col_z1 - col_z0),
     "Z actuator (column)",
@@ -462,7 +508,11 @@ for w0 in (-45, 55):
 
 # Cradle: bottom and side walls (inner width > avocado length)
 CR_W = (AVO_L if AVO_ROLLS else AVO_D) + 9
-add(cbox(-CR_W / 2, 16, -13, CR_W, 76, 5), "Cradle – bottom", "#ffb300")
+# slot for the pusher arm, offset from the row centre so the arm clears the
+# gate's rocker arm and rear post when it pushes into a row
+PUSH_U = -30
+bottom = cbox(-CR_W / 2, 16, -13, CR_W, 76, 5) - cbox(PUSH_U - 5, 15, -14, 10, 78, 7)
+add(bottom, "Cradle – bottom", "#ffb300")
 for sgn in (-1, 1):
     u0 = CR_W / 2 if sgn > 0 else -CR_W / 2 - 4
     add(cbox(u0, 16, -13, 4, 76, 50), "Cradle – side wall", "#ffa000")
@@ -481,13 +531,14 @@ add(
     "#424242",
 )
 
-# Pusher driven by a small linear actuator above the cradle
+# Pusher: belt-driven linear slide under the cradle, the arm comes up
+# through the slot in the cradle bottom (keeps the view from above clear)
 push_face = 76 if ELEV_MODE != "insert" else 30
 add(cbox(-40, push_face, 2, 80, 5, 56), "Pusher plate", "#f4511e")
-add(cbox(-6, push_face + 5, 50, 12, 8, 30), "Pusher arm", "#bf360c")
-add(cbox(-14, push_face + 2, 78, 28, 16, 4), "Pusher – slide", "#90a4ae")
-add(cbox(-18, 20, 82, 36, 90, 18), "Pusher linear actuator", "#546e7a")
-add(cbox(-18, 104, 82, 36, 6, 18), "Actuator mount", "#37474f")
+add(cbox(PUSH_U - 4, push_face + 5, -16, 8, 6, 28), "Pusher arm", "#bf360c")
+add(cbox(PUSH_U - 8, push_face + 2, -22, 16, 14, 6), "Pusher – slide", "#90a4ae")
+add(cbox(PUSH_U - 10, 16, -32, 20, 76, 10), "Pusher linear rail (belt)", "#546e7a")
+add(cbox(PUSH_U - 14, 60, -56, 28, 32, 24), "Pusher motor", "#37474f")
 
 # Avocado in the cradle
 a = scale(Sphere(1), by=(AVO_L / 2, AVO_D / 2, AVO_D / 2))
@@ -496,7 +547,43 @@ if not AVO_ROLLS:
 if ELEV_MODE == "insert":
     add(C * Pos(0, push_face - AVO_D / 2, AVO_D / 2 + 4) * a, "Avocado", "#6b9a33")
 else:
-    add(C * Pos(0, push_face - AVO_D / 2, -8 + AVO_D / 2) * a, "Avocado", "#6b9a33")
+    add(C * Pos(*cradle_avo) * a, "Avocado", "#6b9a33")
+
+# ---------------------------------------------------------------
+# SCAN STATION (multispectral camera + LEDs in the raised back)
+# ---------------------------------------------------------------
+# Built in the view system: the camera looks along -z, then it is tilted
+# cam_tilt below horizontal, looking towards -X into the cradle.
+cw, ch, cd = CAM_BODY
+cam = [
+    (Box(cw, ch, cd), "Multispectral camera (Pi + LED holder)", "#1f1f1f"),
+    (Pos(0, 0, -cd / 2 - 3) * Cylinder(8, 6), "Camera lens", "#3050a0"),
+]
+for lx, ly in ((-1, -1), (-1, 1), (1, -1), (1, 1)):
+    cam.append(
+        (
+            Pos(lx * (cw / 2 - 8), ly * (ch / 2 - 8), -cd / 2 - 1) * Cylinder(3, 2),
+            "Scan LED",
+            "#fff59d",
+        )
+    )
+cam_c = (scan_x + CAM_SIDE, shelf_y1 + cradle_avo[1], z_scan + cradle_avo[2] + CAM_UP)
+T = Pos(*cam_c) * Rot(0, 90 - math.degrees(cam_tilt), 0)
+for shp, lab, col in cam:
+    add(T * shp, lab, col)
+cam_top = z_scan + cam_hi
+add(
+    box(
+        cam_c[0] - 6,
+        cam_c[1] - 10,
+        cam_top - 10,
+        12,
+        20,
+        h_back - ROOF_T - cam_top + 10,
+    ),
+    "Camera bracket",
+    "#78909c",
+)
 
 # ---------------------------------------------------------------
 # EXPORT + REPORT
@@ -516,6 +603,17 @@ if __name__ == "__main__":
     print(f" Pusher stroke into row:    {76 - (-6):.0f} mm")
     print(f" Cradle inner width:        {CR_W:.0f} mm")
     print("=" * 56)
+    print(" SCAN STATION")
+    print("=" * 56)
+    print(f" Height at the back:        {h_back:.0f} mm  (front {H} mm)")
+    print(f" Top-section delivery:      z = {z_deliver:.0f} mm")
+    print(f" Scan position:             z = {z_scan:.0f} mm")
+    print(
+        f" Camera tilt / lens gap:    {math.degrees(cam_tilt):.0f}° / "
+        f"{math.hypot(CAM_SIDE, CAM_UP) - CAM_BODY[2] / 2 - 6 - AVO_D / 2:.0f} mm"
+        " to avocado surface"
+    )
+    print("=" * 56)
     print(" CAPACITY REPORT")
     print("=" * 56)
     print(f" Shelf area (W x D):        {inner_w:.0f} x {shelf_len:.0f} mm")
@@ -525,14 +623,15 @@ if __name__ == "__main__":
     print(f" Level height (w/ slope):   {level_pitch:.0f} mm")
     print(
         f" Levels that fit:           {n_levels_fit}"
-        + ("  (1 used for loading)" if LOAD_LEVEL else "")
+        + (f"  (row {load_row} on shelf 1 used for loading)" if load_row else "")
     )
     print(f" Storage shelves in model:  {n_shelves}  (desired {N_SHELVES})")
-    print(f" Total storage capacity:    {n_shelves * n_rows * per_row}")
+    load_cap = per_row if load_row else 0
+    print(f" Total storage capacity:    {n_shelves * n_rows * per_row - load_cap}")
+    if load_row:
+        print(f" Loading row buffer:        {load_cap}")
     if n_shelves < N_SHELVES:
-        need = (
-            (N_SHELVES + (1 if LOAD_LEVEL else 0)) * level_pitch + drop + BASE_H + TOP_H
-        )
+        need = N_SHELVES * level_pitch + drop + BASE_H + TOP_H
         print(f" ! {N_SHELVES} shelves require approx. {need:.0f} mm total height.")
     print("=" * 56)
 
