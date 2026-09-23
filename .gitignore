@@ -1,0 +1,17 @@
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+.ruff_cache/
+
+# Generated CAD output
+*.step
+
+# Blender backup files
+*.blend1
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# macOS
+.DS_Store
