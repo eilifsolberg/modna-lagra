@@ -12,8 +12,9 @@ are in `README.md` (Norwegian).
 
 - `src/modna/lagra/avocado_manager.py` — parametric concept model of the whole
   machine in build123d. One flat script: PARAMETERS → DERIVED QUANTITIES →
-  geometry sections (housing, loading level, shelves + gate mechanism,
-  top section, elevator) → STEP export + capacity report.
+  geometry sections (housing, loading level, shelves with fixed row ends,
+  top section, elevator with fork carriage, scan station) → STEP export +
+  capacity report.
 - `camera-holder/` — Blender/STL/3MF/G-code files for a 3D-printed Raspberry Pi
   camera + LED holder. Versions are separate files (`_v2` … `_v8`); the
   changelog and print workflow (Blender → PrusaSlicer → Prusa printer) are in

@@ -36,9 +36,9 @@ from build123d import (
 W, D, H = 600, 600, 800
 WALL = 25  # wall incl. insulation
 
-# Avocado (Hass). The nominal size is what is drawn and what the gate is tuned
-# for. Rows, level height and cradle are sized for the largest fruit, and the
-# report checks capacity and gate function across the whole range.
+# Avocado (Hass). The nominal size is what is drawn. Rows, level height, lip,
+# fork and cradle are sized for the whole range, and the report checks
+# capacity and the row end / fork function across it.
 AVO_D = 65  # nominal diameter
 AVO_L = 95  # nominal length
 AVO_D_RANGE = (62, 78)  # min/max diameter (rough Hass range - measure your supply)
@@ -54,9 +54,10 @@ TOP_H = 130  # customer section on top
 # Shelves
 N_SHELVES = 6  # desired number (the script checks whether it fits)
 SHELF_T = 20  # shelf thickness (insulated divider between zones)
+FORK_ZONE_T = 5  # shelf thickness over the fork zone at the rear (recessed
+# from below: a lifted fruit on the shelf underneath uses the space)
 SLOPE_DEG = 3.0  # downward slope towards the elevator
 FRONT_CLEAR = 10  # gap between shelf and front wall
-GATE_SPACE = 25  # space under the shelf for the gate mechanism
 FILL = 0.7  # fraction of slots shown filled
 LOAD_ROW = 3  # row on the bottom shelf that staff fill from the front (0 = none)
 
@@ -67,36 +68,44 @@ ROW_PROFILE = "v"  # "flat":  flat shelf plate between the row dividers
 V_ANGLE = 12  # "v": flank angle above horizontal (deg)
 TRAY_T = 3  # "v": tray sheet thickness
 RAIL_D = 10  # "rails": rail diameter
-RAIL_GAP = 40  # "rails": centre distance between the two rails
+RAIL_GAP = 46  # "rails": centre distance between the two rails (fork fits between)
 DIVIDER_T = 4  # row divider thickness
 DIVIDER_H = 35  # row divider height above the shelf plate
 HOLD_DOWN = False  # rail above each row, stops the queue climbing during insert
 HOLD_T = 6  # hold-down rail thickness
 
-# Gate (escapement) at the rear end of each row
-GATE_TRAVEL = 19  # vertical travel of the stops (mm)
-GATE_FLAP_H = 17  # height of the rear stop above the resting fruit's bottom
-GATE_FLAP_W = 24  # width of the rear stop flap (must fit between rails)
-GATE_PIN_D = 8  # diameter of the front pin
-GATE_TAB = 12  # how far the rocker arm's roller protrudes into the elevator shaft
+# Row end: a fixed lip (two posts with a notch between them) holds the queue.
+# Nothing in the shelves moves - the elevator's fork lifts fruit over the lip.
+LIP_H = 12  # lip top above the resting (nominal) fruit's bottom
+LIP_BACK = 3  # lip material behind the rear point of the fruit resting against it
+
+# Fork on the carriage: two tines + pusher face on one linear slide, the only
+# actuator on the carriage. The elevator's Z axis does the lifting.
+TINE_W = 5  # tine width
+TINE_H = 8  # tine height
+TINE_GAP = 22  # centre distance between the two tines
+TINE_CLEAR = 3  # clearance tine <-> lip notch, and tine <-> fruit when sliding under
+LIFT_CLEAR = 4  # lifted fruit clears the lip by this
+TIP_MARGIN = 8  # the tip stays this far ahead of fruit 1's centre and behind fruit 2
+INSERT_MARGIN = 4  # the new fruit is pushed this far past its resting place
+PUSHER_H = 30  # pusher face height above the tines
 
 # Elevator (rear side). The shaft depth follows from the carriage stack below.
-ELEV_MODE = "scan"  # "fetch":  the carriage is docked and releases one avocado
-# "insert": the pusher pushes an avocado into the row
+ELEV_MODE = "scan"  # "fetch":  the fork has lifted avocado 1 over the lip
+# "insert": the fork pushes an avocado into the row
 # "scan":   the carriage is up in the scan station
 # "free":   the carriage is free-standing at ELEV_X / ELEV_Z
 DOCK_SHELF = 2  # shelf the carriage is docked against (1 = lowest storage shelf)
 DOCK_ROW = 2  # row the carriage is docked against (1 = left)
 ELEV_X = 0.35  # only for "free" (0..1)
 ELEV_Z = 0.55  # only for "free" (0..1)
-PUSH_SNAPSHOT = 0.5  # only for "insert": how far through its stroke the pusher is
+PUSH_SNAPSHOT = 0.5  # only for "insert": how far through its stroke the fork is
 
-# Carriage stack, front to back: cradle pocket, pusher, carriage plate,
+# Carriage stack, front to back: cradle pocket, fork post, carriage plate,
 # bearing blocks, Z rail, Z column
-CR_DROP = 8  # cradle floor below the fruit's resting bottom on the shelf
-CR_FLOOR_T = 5  # cradle floor thickness
-CR_WALL_H = 50  # cradle side wall height
-PUSH_BACK = 16  # pusher plate + arm behind the fruit pocket
+CR_GAP = 5  # gap between the shelves' rear edge and the cradle
+CR_WALL_H = 50  # cradle side wall height above the tines
+FORK_POST_T = 10  # post connecting the tines to the fork slide
 CARRIAGE_PLATE_T = 16
 CARRIAGE_UP = 100  # carriage plate top above the dock origin
 CARRIAGE_DOWN = 55  # carriage plate bottom below the dock origin
@@ -178,11 +187,97 @@ row_inner = across_max + 2 * CLEAR
 row_pitch = row_inner + DIVIDER_T
 n_rows = int(inner_w // row_pitch)
 
-# Carriage stack in v (backwards from the shelf's rear edge): gate rollers,
-# cradle pocket for the largest fruit, pusher, carriage plate, Z guide
-cr_v0 = GATE_TAB + 4  # cradle front, clear of the gate rollers
+# Fruit sizes checked below, as (across, along, height): smallest, nominal, largest
+SIZES = [
+    (*across_along(d, l), d)
+    for d, l in (
+        (AVO_D_RANGE[0], AVO_L_RANGE[0]),
+        (AVO_D, AVO_L),
+        (AVO_D_RANGE[1], AVO_L_RANGE[1]),
+    )
+]
+
+# Row end: the tines run in a notch between the two lip posts, and in a slot
+# through the row floor at the rear end of the row.
+notch = TINE_GAP / 2 + TINE_W / 2 + TINE_CLEAR  # half width of notch and slot
+tine_in = TINE_GAP / 2 - TINE_W / 2  # inner edge of a tine (the fruit rests on it)
+
+
+def on_points(across, height, u):
+    """Centre of the fruit's cross-section above two support points at ±u."""
+    a, b = across / 2, height / 2
+    return b * math.sqrt(1 - (u / a) ** 2)
+
+
+def rear_seat(across, height):
+    """Fruit centre above the plate at the row end, where the fork slot is cut
+    out of the row floor (the fruit may sink into it)."""
+    if ROW_PROFILE == "v":
+        al = math.radians(V_ANGLE)
+        a, b = across / 2, height / 2
+        u_t = a * a * math.sin(al) / math.hypot(a * math.sin(al), b * math.cos(al))
+        if u_t > notch:  # still rests on the flanks, outside the slot
+            return seat_height(across, height)
+        return TRAY_T + notch * math.tan(al) + on_points(across, height, notch)
+    if ROW_PROFILE == "rails":  # the slot lies between the rails
+        return seat_height(across, height)
+    return on_points(across, height, notch)
+
+
+rear_seat_nom = rear_seat(across_nom, AVO_D)
+lip_top = rear_seat_nom - AVO_D / 2 + LIP_H  # above the plate
+
+
+def lip_contact(across, along, height):
+    """Fruit 1 resting against the lip, touching the posts' top inner edges.
+    Returns (bulge, hold): its rear bulges `bulge` mm past the posts' front
+    face into the notch, and climbing the lip takes a push of `hold` x its
+    weight (pivoting about the edge)."""
+    a, l, b = across / 2, along / 2, height / 2
+    dz = max(rear_seat(across, height) - lip_top, 0.0)  # contact below the centre
+    ext = l * math.sqrt(max(0.0, 1 - (notch / a) ** 2 - (dz / b) ** 2))
+    return l - ext, ext / dz if dz > 0 else math.inf
+
+
+contacts = [lip_contact(*s) for s in SIZES]
+bulge_nom = contacts[1][0]
+lip_d = max(bg for bg, _ in contacts) + LIP_BACK  # depth of the lip posts
+hold_min = min(h for _, h in contacts)
+
+# Fork heights above the plate. Low: the tines slide in under fruit 1.
+# High: fruit 1 on the tines clears the lip (it sags between the tines, but
+# only has to clear the posts outside the notch).
+tine_top_low = (
+    min(rear_seat(ac, h) - on_points(ac, h, tine_in) for ac, _, h in SIZES) - TINE_CLEAR
+)
+tine_top_high = max(
+    lip_top + LIFT_CLEAR + on_points(ac, h, notch) - on_points(ac, h, tine_in)
+    for ac, _, h in SIZES
+)
+lift = tine_top_high - tine_top_low  # Z move of the elevator per fetch/insert
+lifted_top_max = max(
+    tine_top_high + on_points(ac, h, tine_in) + h / 2 for ac, _, h in SIZES
+)
+
+# Tine length. When fetching, the pusher face touches fruit 1's rear (its size
+# is known from the scan), so the tip must reach past fruit 1's centre but
+# stay behind fruit 2, for every fruit size. Raised, the tip holds fruit 2.
+tip_lo = along_max / 2 + TIP_MARGIN
+tip_hi = along_min - TIP_MARGIN
+tine_len = (tip_lo + tip_hi) / 2 if tip_lo <= tip_hi else tip_hi
+
+# Fork travel in v (backwards from the shelf's rear edge, v < 0 is inside
+# the row). Insert: the pusher face stops where the new fruit's rear will
+# rest, minus a margin. Fetch: it stops just behind fruit 1's rear.
+v_insert = min(bg for bg, _ in contacts) - lip_d - INSERT_MARGIN
+v_fetch = bulge_nom - lip_d + 2
+
+# Carriage stack in v: cradle pocket for the largest fruit, fork post (kept
+# in the shaft even at full stroke), carriage plate, Z guide
+cr_v0 = CR_GAP  # cradle front
 push_rest = cr_v0 + along_max + CLEAR  # pusher face at rest (back of the pocket)
-cr_v1 = push_rest + PUSH_BACK  # back of the cradle = front of the carriage plate
+fork_shank = CR_GAP + 6 - v_insert  # pusher face -> fork post
+cr_v1 = push_rest + fork_shank + FORK_POST_T  # back of cradle = carriage plate
 v_bear = cr_v1 + CARRIAGE_PLATE_T
 v_zrail = v_bear + BEARING_T
 v_col = v_zrail + Z_RAIL_T
@@ -194,18 +289,23 @@ shelf_y1 = D - WALL - elev_depth
 shelf_len = shelf_y1 - shelf_y0
 slope = math.radians(SLOPE_DEG)
 drop = shelf_len * math.tan(slope)
-stop_face = shelf_len - 6  # front face of the rear stop = end of the queue
+stop_face = shelf_len - lip_d  # front face of the lip posts
+q_rear = stop_face + bulge_nom  # rear point of the nominal fruit 1 = end of the queue
 slot_len = along_nom + 2  # drawn spacing in the queue
+# front end of the fork slot: past the tine tip, and past fruit 1 of any size
+# (so it rests the same way, sunk into the slot)
+slot_y0 = min(shelf_len + v_insert - tine_len, stop_face - along_max) - 5
 
 
 def per_row(along):
-    return int(stop_face // along)
+    return int(q_rear // along)
 
 
 per_row_nom = per_row(along_nom)
 
-level_pitch = (
-    fruit_top_max + CLEAR + (HOLD_T if HOLD_DOWN else 0) + SHELF_T + GATE_SPACE
+level_pitch = max(
+    fruit_top_max + CLEAR + (HOLD_T if HOLD_DOWN else 0) + SHELF_T,
+    lifted_top_max + CLEAR + FORK_ZONE_T,  # a lifted fruit under the fork zone
 )
 storage_z0 = BASE_H
 storage_z1 = H - TOP_H
@@ -213,25 +313,15 @@ n_levels_fit = int((storage_z1 - storage_z0 - drop) // level_pitch)
 n_shelves = min(N_SHELVES, n_levels_fit)
 load_row = LOAD_ROW if 1 <= LOAD_ROW <= n_rows else 0
 
-# Front pin vs fruit size: the pin rises into the wedge-shaped gap where fruit
-# 1 and 2 touch. The gap is computed for two nominal fruits; the contact point
-# moves when fruit 1 is smaller or larger than nominal.
-pin_h = GATE_TRAVEL - 2  # raised pin tip above the fruit's bottom
-_b = AVO_D / 2
-pin_gap = along_nom * (1 - math.sqrt(max(0.0, 1 - ((_b - pin_h) / _b) ** 2)))
-pin_tol = pin_gap / 2 - GATE_PIN_D / 2  # allowed contact point offset
-pin_shift = max(along_nom - along_min, along_max - along_nom)
-
-# Pusher: from rest to just past the rear flap (v < 0 is inside the row)
-push_end = stop_face - shelf_len - 2
+# Fork position in the snapshot (pusher face, v) and how far a new fruit has
+# pushed the queue up the slope
 if ELEV_MODE == "insert":
-    push_face = push_rest + PUSH_SNAPSHOT * (push_end - push_rest)
+    push_face = push_rest + PUSH_SNAPSHOT * (v_insert - push_rest)
+elif ELEV_MODE == "fetch":
+    push_face = v_fetch
 else:
     push_face = push_rest
-# how far the new fruit has pushed the queue up the slope
-queue_shift = max(0.0, stop_face - (shelf_len + push_face - along_nom))
-PUSH_U = -(GATE_FLAP_W / 2 + 8)  # pusher arm offset, clears the rear post/flap
-push_w = min(80, row_inner - 10)  # pusher plate width, fits inside a row
+queue_shift = max(0.0, q_rear - (shelf_len + push_face - along_nom))
 
 # Customer section on top
 top_z = H - TOP_H + 20
@@ -239,14 +329,30 @@ top_len = shelf_y1 - WALL - 5
 top_slope = math.radians(TOP_SLOPE_DEG)
 top_drop = top_len * math.tan(top_slope)
 
-# Elevator travel. The carriage is built around a dock origin at the
-# shelf's rear edge (see ELEVATOR); an avocado in the cradle sits at
-# cradle_avo (u, v, w) relative to it. Above the cradle itself nothing is
-# higher than the avocado, so the camera can sit there.
+
+# Elevator travel. The carriage is built around a dock origin at the shelf's
+# rear edge (row centre, plate surface): there the fork is low, `lift` higher
+# it is high. The fork and cradle are tilted like the shelves, so a fruit on
+# the tines rolls back against the pusher face; fork_to_carriage() maps their
+# (v, w) to the upright carriage frame.
+def fork_to_carriage(v, w):
+    return (
+        v * math.cos(slope) + w * math.sin(slope),
+        -v * math.sin(slope) + w * math.cos(slope),
+    )
+
+
+def fruit_on_tines(across, along, height, face):
+    """(v, w) of a fruit's centre on the tines, rear against the pusher face."""
+    return face - along / 2, tine_top_low + on_points(across, height, tine_in)
+
+
 cr_w = row_inner  # cradle inner width
-cradle_floor = floor_z - CR_DROP  # w of the cradle floor surface
-cradle_avo = (0, push_rest - along_nom / 2, cradle_floor + AVO_D / 2)
-cradle_top = cradle_floor + AVO_D_RANGE[1]  # top of the largest fruit
+cradle_avo = (0, *fork_to_carriage(*fruit_on_tines(*SIZES[1], push_rest)))
+cradle_top = max(  # top of the largest fruit
+    fork_to_carriage(*fruit_on_tines(ac, al, h, push_rest))[1] + h / 2
+    for ac, al, h in SIZES
+)
 x_travel0 = WALL + 30
 x_travel1 = W - WALL - 30
 z_travel0 = storage_z0
@@ -254,15 +360,15 @@ z_deliver = top_z + top_len * math.sin(top_slope)  # rear end of the top trays
 
 # Scan station: the camera looks down (or sideways/down if CAM_SIDE > 0) into
 # the cradle. Its lowest point must clear the avocado in the cradle when the
-# carriage delivers to the top section below it.
+# carriage passes below it on its way to the top section (fork high).
 cam_tilt = math.atan2(CAM_UP, CAM_SIDE)  # below horizontal
 cam_half_w = CAM_BODY[0] / 2 * math.cos(cam_tilt) + CAM_BODY[2] / 2 * math.sin(cam_tilt)
 lens_reach = (CAM_BODY[2] / 2 + 6) * math.sin(cam_tilt)  # lens tip
 cam_lo = cradle_avo[2] + CAM_UP - max(cam_half_w, lens_reach)  # rel. dock origin
 cam_hi = cradle_avo[2] + CAM_UP + cam_half_w
 scan_x = x_travel0 + SCAN_X * (x_travel1 - x_travel0)
-z_scan = z_deliver + cradle_top + SCAN_CLEAR - cam_lo
-z_travel1 = max(z_scan, z_deliver)  # highest dock origin
+z_scan = z_deliver + lift + cradle_top + SCAN_CLEAR - cam_lo
+z_travel1 = max(z_scan, z_deliver + lift)  # highest dock origin
 z_rail = z_travel1 + CARRIAGE_UP + SCAN_CLEAR  # upper X rail (bottom)
 h_back = max(z_rail + 18, z_scan + cam_hi + 10) + ROOF_T
 
@@ -338,40 +444,28 @@ add(
 z = storage_z0
 
 # ---------------------------------------------------------------
-# STORAGE SHELVES WITH GATE MECHANISM
+# STORAGE SHELVES WITH FIXED ROW ENDS
 # ---------------------------------------------------------------
 # Each shelf is built in a local coordinate system that follows the shelf plate:
 #   lx = 0..inner_w (width), ly = 0 front .. shelf_len rear (elevator),
 #   lz = 0 at the shelf plate's surface. Then everything is tilted SLOPE_DEG.
 #
-# Gate mechanism per row (passive, no motor per row):
-#   - A rocker arm under the shelf pivots about a shaft.
-#   - Rear: a stop (post + spring-loaded flap) holds the queue.
-#   - Front: a pin that sits lowered in the rest position.
-#   - A side arm with a roller protrudes GATE_TAB mm into the elevator shaft.
-#   When the elevator carriage pushes the roller down, the rear stop is
-#   lowered and the front pin is raised between avocado 1 and 2: only one
-#   avocado is released.
-#   The flap on the rear stop can fold inwards, so the pusher can
-#   push a new avocado into the row without opening the gate (LIFO).
-#   Stop and pin heights follow the fruit's resting bottom (floor_z), which
-#   depends on ROW_PROFILE.
+# Row end (no moving parts): two fixed posts - the lip - hold the queue. A
+# notch between them continues as a slot through the row floor, open to the
+# rear. The elevator's fork runs in it:
+#   Fetch:  fork low -> tines slide in under fruit 1 -> the elevator lifts
+#           `lift` mm, fruit 1 clears the lip and the raised tip holds fruit 2
+#           -> fork retracts, fruit 2 follows it and stops at the lip.
+#   Insert: fork high -> the new fruit pushes the queue up the slope (contact
+#           above the queue's centre, so it does not climb) until it is past
+#           the lip -> the elevator lowers, the tines drop through the slot
+#           -> fork retracts under the fruit.
+# Over the fork zone the shelf is only FORK_ZONE_T thick (recessed from
+# below), which is where a lifted fruit on the shelf underneath goes.
 
 rows_w = n_rows * row_pitch
 x_off = WALL + (inner_w - rows_w) / 2
 a_sl = -slope  # angle for local -> global
-
-y_rear = stop_face + 2  # rear stop flap (centre)
-y_front = stop_face - along_nom  # front pin (where avocado 1 and 2 touch)
-y_piv = (y_rear + y_front) / 2
-d_arm = (y_rear - y_front) / 2
-z_piv = -SHELF_T - 14
-phi0 = math.asin(GATE_TRAVEL / (2 * d_arm))  # ± rocker angle
-L_tab = shelf_len + GATE_TAB - y_piv  # shaft -> roller
-rear_len = floor_z + GATE_FLAP_H - (z_piv + d_arm * math.sin(phi0))
-front_len = floor_z - 2 - (z_piv - d_arm * math.sin(phi0))
-TAB_X = row_pitch / 2 - 12  # roller's lateral offset from row centre
-shaft_half = row_pitch / 2 - 4  # rocker shaft half-length
 
 
 def to_world(base, lx, ly, lz):
@@ -387,19 +481,9 @@ def row_cx(r):
     return x_off - WALL + r * row_pitch + row_pitch / 2
 
 
-def tab_roller_z(phi):
-    """Roller centre height (local) for a given rocker angle."""
-    return z_piv + L_tab * math.sin(phi)
-
-
-def gate_cutouts(cxl):
-    """Openings for the rear stop and front pin (plate and tray)."""
-    return [
-        box(
-            cxl - GATE_FLAP_W / 2 - 2, y_rear - 5, -SHELF_T - 1, GATE_FLAP_W + 4, 10, 60
-        ),
-        Pos(cxl, y_front, 0) * Cylinder(GATE_PIN_D / 2 + 2, 2 * SHELF_T + 2),
-    ]
+def fork_slot(cxl, z0=-SHELF_T - 1, dz=60):
+    """Slot for the tines at the rear end of a row (plate and tray)."""
+    return box(cxl - notch, slot_y0, z0, 2 * notch, shelf_len - slot_y0 + 1, dz)
 
 
 def row_floor(cxl):
@@ -408,10 +492,9 @@ def row_floor(cxl):
         w = row_inner / 2 / math.cos(math.radians(V_ANGLE))
         out = []
         for sgn in (-1, 1):
-            flank = box(0 if sgn > 0 else -w, 0, -TRAY_T, w, shelf_len, TRAY_T)
+            flank = box(0 if sgn > 0 else -w, 0, -TRAY_T, w, stop_face, TRAY_T)
             flank = Pos(cxl, 0, TRAY_T) * Rot(0, -sgn * V_ANGLE, 0) * flank
-            for cut in gate_cutouts(cxl):
-                flank -= cut
+            flank -= fork_slot(cxl)
             out.append((flank, "Row tray (V-channel, lift-out)", "#e0f2f1"))
         return out
     if ROW_PROFILE == "rails":
@@ -428,81 +511,24 @@ def row_floor(cxl):
     return []
 
 
-def gate(cxl, released=False, flap_folded=False):
-    """Gate mechanism for one row, in the shelf's local system."""
-    phi = -phi0 if released else phi0
-    out = []
-    # Rocker arm (rotates about the shaft)
-    rocker = [
-        (Rot(0, 90, 0) * Cylinder(4, 2 * shaft_half), "Gate – shaft", "#9e9e9e"),
-        (box(-4, -d_arm - 8, -3, 8, 2 * d_arm + 16, 6), "Gate – rocker arm", "#546e7a"),
-        (box(TAB_X - 4, -6, -3, 8, L_tab + 6, 6), "Gate – side arm", "#546e7a"),
+def row_end(cxl):
+    """The fixed lip: two posts either side of the fork notch."""
+    post_w = row_inner / 2 - notch
+    return [
         (
-            Pos(TAB_X, L_tab, 0) * Rot(0, 90, 0) * Cylinder(5, 12),
-            "Gate – roller",
-            "#ffca28",
-        ),
+            box(
+                cxl + notch if sgn > 0 else cxl - row_inner / 2,
+                stop_face,
+                0,
+                post_w,
+                lip_d,
+                lip_top,
+            ),
+            "Row end stop (fixed lip)",
+            "#c0392b",
+        )
+        for sgn in (-1, 1)
     ]
-    T = Pos(cxl, y_piv, z_piv) * Rot(math.degrees(phi), 0, 0)
-    out += [(T * shp, lab, col) for shp, lab, col in rocker]
-
-    # Rear stop: post + flap
-    z_r = z_piv + d_arm * math.sin(phi)
-    top_r = z_r + rear_len
-    hinge_z = top_r - GATE_FLAP_H - 1
-    out.append(
-        (
-            box(cxl - 10, y_rear - 2.5, z_r, 20, 5, hinge_z - z_r),
-            "Gate – rear post",
-            "#c0392b",
-        )
-    )
-    out.append(
-        (
-            Pos(cxl, y_rear, hinge_z) * Rot(0, 90, 0) * Cylinder(3, GATE_FLAP_W),
-            "Gate – flap hinge",
-            "#7f8c8d",
-        )
-    )
-    flap = box(-GATE_FLAP_W / 2, -2, 0, GATE_FLAP_W, 4, GATE_FLAP_H + 1)
-    fold = 80 if flap_folded else 0
-    out.append(
-        (
-            Pos(cxl, y_rear, hinge_z) * Rot(fold, 0, 0) * flap,
-            "Gate – flap (one-way)",
-            "#e74c3c",
-        )
-    )
-
-    # Front pin
-    z_f = z_piv - d_arm * math.sin(phi)
-    pin_r = GATE_PIN_D / 2
-    out.append(
-        (
-            Pos(cxl, y_front, z_f)
-            * Cylinder(pin_r, front_len, align=(Align.CENTER, Align.CENTER, Align.MIN)),
-            "Gate – front pin",
-            "#c0392b",
-        )
-    )
-    out.append(
-        (
-            Pos(cxl, y_front, z_f + front_len) * Sphere(pin_r),
-            "Gate – pin tip",
-            "#c0392b",
-        )
-    )
-
-    # Fixed brackets under the shelf
-    for sx in (-shaft_half, TAB_X - 14):
-        out.append(
-            (
-                box(cxl + sx, y_piv - 8, z_piv - 8, 4, 16, -SHELF_T - (z_piv - 8)),
-                "Gate – bracket",
-                "#78909c",
-            )
-        )
-    return out
 
 
 docked = ELEV_MODE in ("fetch", "insert")
@@ -515,11 +541,13 @@ for s in range(n_shelves):
     T = Pos(WALL, shelf_y0, base) * Rot(-SLOPE_DEG, 0, 0)
     local = []
 
-    # Shelf plate with cut-outs for the stops
+    # Shelf plate: thin over the fork zone, with a slot per row for the tines
     plate = box(0, 0, -SHELF_T, inner_w, shelf_len, SHELF_T)
+    plate -= box(
+        -1, slot_y0, -SHELF_T - 1, inner_w + 2, shelf_len, SHELF_T - FORK_ZONE_T + 1
+    )
     for r in range(n_rows):
-        for cut in gate_cutouts(row_cx(r)):
-            plate -= cut
+        plate -= fork_slot(row_cx(r))
     local.append((plate, f"Shelf {s + 1} ({temp} °C)", zc))
 
     # Row dividers
@@ -529,48 +557,47 @@ for s in range(n_shelves):
             (box(rx, 0, 0, DIVIDER_T, shelf_len, DIVIDER_H), "Row divider", "#eeeeee")
         )
 
-    # Hold-down: one rail per row, carried by cross bars fixed to the side walls
+    # Hold-down: one rail per row, carried by cross bars fixed to the side
+    # walls. It ends before the fork zone, where fruit is lifted.
     if HOLD_DOWN:
-        for fy in (0.2, 0.8):
+        for fy in (0.2 * shelf_len, slot_y0 - 20):
             local.append(
                 (
-                    box(0, fy * shelf_len - 6, hold_z, inner_w, 12, HOLD_T),
+                    box(0, fy - 6, hold_z, inner_w, 12, HOLD_T),
                     "Hold-down cross bar",
                     "#b0bec5",
                 )
             )
 
-    # Row floors, gates + avocados
+    # Row floors, row ends + avocados
     n_fill = round(per_row_nom * FILL)
     for r in range(n_rows):
         cxl = row_cx(r)
         local += row_floor(cxl)
+        local += row_end(cxl)
         if HOLD_DOWN:
             local.append(
                 (
-                    box(cxl - 6, 0, hold_z, 12, shelf_len, HOLD_T),
+                    box(cxl - 6, 0, hold_z, 12, slot_y0 - 14, HOLD_T),
                     "Hold-down rail",
                     "#b0bec5",
                 )
             )
         is_dock = docked and s == DOCK_SHELF - 1 and r == DOCK_ROW - 1
-        local += gate(
-            cxl,
-            released=is_dock and ELEV_MODE == "fetch",
-            flap_folded=is_dock and ELEV_MODE == "insert",
-        )
         col = RIPE_COLORS[(s + r) % len(RIPE_COLORS)]
         is_load = s == 0 and r == load_row - 1
         if is_load:
             col = "#7d8a5c"  # not yet scanned
         if is_dock:
             dock_origin = to_world(base, cxl, shelf_len, 0)
-        k0 = 1 if is_dock and ELEV_MODE == "fetch" else 0  # avocado 1 is in the cradle
+        k0 = 1 if is_dock and ELEV_MODE == "fetch" else 0  # avocado 1 is on the fork
         shift = queue_shift if is_dock and ELEV_MODE == "insert" else 0
         for k in range(k0, n_fill):
-            cy = stop_face - slot_len / 2 - k * slot_len - shift
+            cy = q_rear - along_nom / 2 - k * slot_len - shift
+            in_slot = cy - along_nom / 2 > slot_y0
+            cz = rear_seat_nom if in_slot else seat_nom  # sunk into the slot
             lab = "Avocado (loaded, not scanned)" if is_load else "Avocado"
-            local.append((Pos(cxl, cy, seat_nom) * avocado_shape(), lab, col))
+            local.append((Pos(cxl, cy, cz) * avocado_shape(), lab, col))
         if is_load:
             # opening in the front where staff fill the loading row
             for fz in (-SHELF_T - 10, fruit_top_max + 12):
@@ -602,7 +629,10 @@ top_colors = ["#2f3a1c", "#557a2b", "#86b83e"]
 
 for i, name in enumerate(TOP_SECTIONS):
     sx = WALL + i * sec_w
-    tray = box(0, 0, -12, sec_w - 6, top_len, 12)
+    # slot at the rear end, where the fork lowers the fruit onto the tray
+    tray = box(0, 0, -12, sec_w - 6, top_len, 12) - box(
+        (sec_w - 6) / 2 - notch, top_len - tine_len - 20, -13, 2 * notch, top_len, 14
+    )
     tray = Pos(sx + 3, WALL, top_z) * Rot(TOP_SLOPE_DEG, 0, 0) * tray
     add(tray, f"Top section: {name}", "#8d6e63")
     # low front edge + divider
@@ -624,34 +654,30 @@ for i, name in enumerate(TOP_SECTIONS):
 
 
 # ---------------------------------------------------------------
-# ELEVATOR (X-Z gantry at the rear) WITH DETAILED CRADLE
+# ELEVATOR (X-Z gantry at the rear) WITH FORK CARRIAGE
 # ---------------------------------------------------------------
-# The cradle is built in its own system (u, v, w) with origin at the shelf's
-# rear edge (row centre, surface) when the carriage is docked:
+# The carriage is built in its own system (u, v, w) with origin at the shelf's
+# rear edge (row centre, surface) when the carriage is docked with the fork low:
 #   u = sideways (X), v = backwards into the shaft (Y), w = up (Z)
+# The fork and cradle use the same system tilted SLOPE_DEG like the shelves
+# (frame F), so a fruit on the tines rolls back against the pusher face.
 #
-# Fetch (ELEV_MODE = "fetch"):
-#   1. The carriage positions itself ~27 mm above dock height at the correct row.
-#   2. The tongue is pushed forward over the gate's roller (small solenoid).
-#   3. The carriage lowers: the tongue presses the roller down -> the gate opens,
-#      avocado 1 rolls over into the cradle, the pin holds the rest of the queue.
-#   4. The carriage rises, the tongue retracts, the spring closes the gate.
-# Insert (ELEV_MODE = "insert"):
-#   The gate is closed. The pusher pushes the avocado past the spring-loaded
-#   flap and pushes the whole queue one step up the slope. The flap snaps
-#   up behind the avocado and holds it in place.
-#   The same pusher also delivers to the customer sections on top.
-# Scan (ELEV_MODE = "scan"):
-#   After fetching an avocado from the loading row on the bottom shelf, the
-#   carriage moves to SCAN_X and rises to the scan station. The camera looks
-#   straight down into the cradle; the pusher's motor and rail sit under the
-#   cradle so nothing blocks the view. The avocado is then placed on the shelf
-#   for its ripeness (or directly in the customer section).
-#
-# The cradle pocket (cr_v0 .. push_rest) holds the largest fruit completely
-# behind the gate rollers, so a fruit in the cradle never hits the rollers of
-# other shelves while the carriage travels.
+# The fork is the only actuator on the carriage: two tines with a pusher face,
+# on a belt-driven slide under the cradle. Lifting is done by the Z axis.
+# Fetch (ELEV_MODE = "fetch"): see the shelf section. The snapshot shows the
+#   fork raised with avocado 1 over the lip, before it retracts.
+# Insert (ELEV_MODE = "insert"): the fork, high, pushes the avocado and the
+#   queue up the slope; then the elevator lowers and the fork retracts.
+# Deliver: the fork, high, reaches over the rear end of a top tray, the
+#   elevator lowers so the tines pass through the tray's slot, and the fruit
+#   rolls down to the customer.
+# Scan (ELEV_MODE = "scan"): the carriage waits under the camera at SCAN_X.
+#   Nothing is above the cradle, so the camera sees the whole fruit. Besides
+#   ripeness, the scan gives each fruit's size: the software keeps every row's
+#   LIFO stack with sizes, and sets the fork strokes from them. Any fetched
+#   fruit can be driven past the camera again to check it is the expected one.
 
+lifted = docked and dock_origin is not None  # fork high at a row
 if ELEV_MODE == "scan":
     dock_origin = (scan_x, shelf_y1, z_scan)
 if dock_origin is None:  # "free" or invalid dock position
@@ -661,11 +687,16 @@ if dock_origin is None:  # "free" or invalid dock position
         z_travel0 + ELEV_Z * (z_travel1 - z_travel0),
     )
 ox, oy, oz = dock_origin
-C = Pos(ox, oy, oz)
+C = Pos(ox, oy, oz + (lift if lifted else 0))
+F = C * Rot(-SLOPE_DEG, 0, 0)
 
 
 def cbox(u, v, w, du, dv, dw):
     return C * box(u, v, w, du, dv, dw)
+
+
+def fbox(u, v, w, du, dv, dw):
+    return F * box(u, v, w, du, dv, dw)
 
 
 # Gantry: X rails at the bottom and top, Z column with linear rail
@@ -700,69 +731,72 @@ add(
 for w0 in (-CARRIAGE_DOWN + 10, CARRIAGE_UP - 45):
     add(cbox(-22, v_bear, w0, 44, BEARING_T, 30), "Bearing block", "#263238")
 
-# Cradle: bottom and side walls. The bottom has a slot for the pusher arm,
-# offset from the row centre so the arm clears the gate's rear post and flap
-# when it pushes into a row.
+# Cradle: base plate carrying the fork slide, and side walls. There is no
+# cradle floor - the fruit rides on the tines.
+tt = tine_top_low  # tine top
+w_rail = tt - TINE_H - 30  # fork rail underside
 cr_depth = cr_v1 - cr_v0
-cr_w0 = cradle_floor - CR_FLOOR_T  # underside of the cradle floor
-bottom = cbox(-cr_w / 2, cr_v0, cr_w0, cr_w, cr_depth, CR_FLOOR_T) - cbox(
-    PUSH_U - 5, cr_v0 - 1, cr_w0 - 1, 10, cr_depth + 2, CR_FLOOR_T + 2
+add(
+    fbox(-plate_w / 2, cr_v0, w_rail - 5, plate_w, cr_depth, 5),
+    "Cradle – base",
+    "#ffb300",
 )
-add(bottom, "Cradle – bottom", "#ffb300")
 for sgn in (-1, 1):
     u0 = cr_w / 2 if sgn > 0 else -cr_w / 2 - 4
-    add(cbox(u0, cr_v0, cr_w0, 4, cr_depth, CR_WALL_H), "Cradle – side wall", "#ffa000")
+    add(
+        fbox(u0, cr_v0, w_rail, 4, cr_depth - 3, tt + CR_WALL_H - w_rail),
+        "Cradle – side wall",
+        "#ffa000",
+    )
 add(
-    cbox(-cr_w / 2 + 2, push_rest - 16, cradle_floor + 16, 8, 14, 10),
+    fbox(-cr_w / 2 - 12, push_rest - 20, tt + 12, 8, 14, 10),
     "Sensor: avocado in cradle",
     "#212121",
 )
 
-# Tongue + solenoid that operates the gate's roller
-tongue_top = tab_roller_z(-phi0) + 5  # top of the roller when the gate is open
-if ELEV_MODE == "fetch":
-    tv0 = GATE_TAB - 8  # tongue extended, above the roller
-else:
-    tv0 = cr_v0 + 8  # tongue retracted
-add(cbox(TAB_X - 7, tv0, tongue_top, 14, 30, 5), "Tongue", "#e65100")
+# Fork: tines + pusher face + post, on a belt-driven slide under the cradle.
+# Everything that enters a row stays inside the notch width.
+fork_w = TINE_GAP + TINE_W
+v_post = push_face + fork_shank
+for sgn in (-1, 1):
+    add(
+        fbox(
+            sgn * TINE_GAP / 2 - TINE_W / 2,
+            push_face - tine_len,
+            tt - TINE_H,
+            TINE_W,
+            tine_len + fork_shank + FORK_POST_T,
+            TINE_H,
+        ),
+        "Fork – tine",
+        "#9e9e9e",
+    )
 add(
-    cbox(TAB_X - 12, cr_v0 + 14, tongue_top - 4, 24, 40, cr_w0 - (tongue_top - 4)),
-    "Tongue solenoid",
-    "#424242",
-)
-
-# Pusher: belt-driven linear slide under the cradle, the arm comes up
-# through the slot in the cradle bottom (keeps the view from above clear)
-add(
-    cbox(-push_w / 2, push_face, cradle_floor + 10, push_w, 5, 56),
-    "Pusher plate",
+    fbox(-fork_w / 2, push_face, tt, fork_w, 6, PUSHER_H),
+    "Fork – pusher face",
     "#f4511e",
 )
 add(
-    cbox(PUSH_U - 4, push_face + 5, cradle_floor - 8, 8, 6, 28), "Pusher arm", "#bf360c"
+    fbox(-fork_w / 2, v_post, tt - TINE_H - 10, fork_w, FORK_POST_T, 10),
+    "Fork – post",
+    "#bf360c",
 )
 add(
-    cbox(PUSH_U - 8, push_face + 2, cradle_floor - 14, 16, 14, 6),
-    "Pusher – slide",
+    fbox(-15, v_post - 6, w_rail + 10, 30, FORK_POST_T + 6, 10 - 0.01),
+    "Fork – slide",
     "#90a4ae",
 )
-add(
-    cbox(PUSH_U - 10, cr_v0, cradle_floor - 24, 20, cr_depth, 10),
-    "Pusher linear rail (belt)",
-    "#546e7a",
-)
-add(
-    cbox(PUSH_U - 14, cr_v1 - 32, cradle_floor - 48, 28, 32, 24),
-    "Pusher motor",
-    "#37474f",
-)
+add(fbox(-10, cr_v0, w_rail, 20, cr_depth, 10), "Fork linear rail (belt)", "#546e7a")
+add(fbox(-14, cr_v1 - 32, w_rail - 5 - 24, 28, 32, 24), "Fork motor", "#37474f")
 
-# Avocado in the cradle (or on its way into the row)
-if ELEV_MODE == "insert":
-    avo_pos = (0, push_face - along_nom / 2, floor_z + AVO_D / 2)
-else:
-    avo_pos = cradle_avo
-add(C * Pos(*avo_pos) * avocado_shape(), "Avocado", "#6b9a33")
+# Avocado on the fork: resting in the cradle, lifted out of the row (rear
+# just ahead of the pusher face), or on its way into the row
+face = push_face - 2 if ELEV_MODE == "fetch" and lifted else push_face
+add(
+    F * Pos(0, *fruit_on_tines(*SIZES[1], face)) * avocado_shape(),
+    "Avocado",
+    "#6b9a33",
+)
 
 # ---------------------------------------------------------------
 # SCAN STATION (multispectral camera + LEDs in the raised back)
@@ -827,23 +861,38 @@ if __name__ == "__main__":
         f"  ({DIVIDER_H / AVO_D_RANGE[1]:.2f} x largest diameter)"
     )
     print(f" Fruit bottom above plate:  {floor_z:.1f} mm  (nominal fruit)")
-    pin_ok = pin_shift <= pin_tol
-    print(
-        f" Front pin tolerance:       ±{pin_tol:.1f} mm, size range moves the"
-        f" contact ±{pin_shift:.0f} mm"
-    )
-    if not pin_ok:
-        print("   ! the front pin will hit fruit that is not close to nominal size")
-    if ROW_PROFILE == "rails" and RAIL_GAP - RAIL_D < GATE_FLAP_W + 4:
-        print("   ! rear stop flap does not fit between the rails")
+    if ROW_PROFILE == "rails" and RAIL_GAP - RAIL_D < 2 * notch:
+        print("   ! the fork notch does not fit between the rails")
     print("=" * 56)
-    print(" GATE AND ELEVATOR")
+    print(" ROW END (fixed lip) AND FORK")
     print("=" * 56)
-    print(f" Gate rocker angle:         ±{math.degrees(phi0):.1f}°")
+    lip_rel = [lip_top - (rear_seat(ac, h) - h / 2) for ac, _, h in SIZES]
     print(
-        f" Dock lowering (tongue):    {tab_roller_z(phi0) - tab_roller_z(-phi0):.0f} mm"
+        f" Lip above fruit bottom:    {min(lip_rel):.0f}–{max(lip_rel):.0f} mm"
+        f"  (notch {2 * notch:.0f} mm wide)"
     )
-    print(f" Pusher stroke into row:    {push_rest - push_end:.0f} mm")
+    queue_push = per_row_nom * math.sin(slope)  # full row, no rolling resistance
+    print(
+        f" Lip hold:                  climbing takes {hold_min:.2f} x fruit weight,"
+        f" full row pushes {queue_push:.2f} x"
+    )
+    if hold_min < 2 * queue_push:
+        print("   ! less than 2x margin - raise LIP_H")
+    print(
+        f" Fruit bulge into notch:    {max(bg for bg, _ in contacts):.0f} mm"
+        f"  (lip posts {lip_d:.0f} mm deep)"
+    )
+    print(
+        f" Tine length:               {tine_len:.0f} mm  (window"
+        f" {tip_lo:.0f}–{tip_hi:.0f} over the size range)"
+    )
+    if tip_lo > tip_hi:
+        print("   ! size range too wide: long fruit overhang the tip past their centre")
+    print(f" Lift per fetch / insert:   {lift:.0f} mm  (elevator Z)")
+    print(
+        f" Fork stroke:               insert {push_rest - v_insert:.0f} mm,"
+        f" fetch {push_rest - v_fetch:.0f} mm"
+    )
     print(f" Cradle pocket (W x D):     {cr_w:.0f} x {push_rest - cr_v0:.0f} mm")
     print(f" Elevator shaft depth:      {elev_depth:.0f} mm")
     print("=" * 56)
