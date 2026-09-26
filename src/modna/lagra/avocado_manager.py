@@ -52,13 +52,13 @@ BASE_H = 120  # technical compartment (cooling/heating, electronics)
 TOP_H = 130  # customer section on top
 
 # Shelves
-N_SHELVES = 6  # desired number (the script checks whether it fits)
+N_SHELVES = 6  # desired number of levels, incl. the loading drawer (the script
+# checks whether they fit)
 SHELF_T = 20  # shelf thickness (insulated divider between zones)
 SLOPE_DEG = 0.0  # slope down towards the front stops. 0 = flat: the fork puts
 # every fruit where it stays. Use ~1-2 deg for fruit that rolls (AVO_ROLLS).
 FRONT_CLEAR = 10  # gap between shelf and front wall
 FILL = 0.7  # fraction of slots shown filled
-LOAD_ROW = 3  # row on the bottom shelf that staff fill from the front (0 = none)
 
 # Rows: what the fruit rests on. Stored fruit sit from the front stop
 # backwards, newest nearest the elevator (LIFO), and never touch each other.
@@ -75,10 +75,19 @@ STOP_T = 4  # front stop at the front end of each row
 STOP_H = 45  # front stop height above the plate (above the fruit's centre)
 PLACE_GAP = 5  # gap the fork leaves between stored fruit
 
-# Loading row: staff push fruit in from the front against a fixed rear lip
-# (two posts with a notch for the fork); the fork lifts them over it.
+# Loading drawer: the top storage level, just under the customer section, is a
+# drawer that staff pull out and fill from above. Every row in it is a loading
+# row: fruit are pushed back against a fixed rear lip (two posts with a notch
+# for the fork), and the fork lifts them over it. The drawer front closing
+# against the housing positions the rows for the fork; the elevator only
+# fetches from the drawer when a sensor reports it closed.
+LOAD_DRAWER = True  # False: no loading level (all levels are storage)
 LIP_H = 8  # lip top above the resting (nominal) fruit's bottom
 LIP_BACK = 3  # lip material behind the rear point of the fruit resting against it
+RUNNER_W = 8  # fixed runners on the side walls that the drawer slides on
+RUNNER_H = 10
+DRAWER_KEEP = 60  # drawer length that stays on the runners when fully open
+DRAWER_OPEN = 0.6  # snapshot: how far the drawer is pulled out (0..1)
 
 # Fork on the carriage: two tines + pusher face, driven by a zip chain (two
 # chains that zip into a rigid bar, and coil into a magazine when apart), so
@@ -103,7 +112,8 @@ ELEV_MODE = "scan"  # "fetch":  the fork has lifted the rearmost avocado of a ro
 # "insert": the fork carries an avocado to its place in the row
 # "scan":   the carriage is up in the scan station
 # "free":   the carriage is free-standing at ELEV_X / ELEV_Z
-DOCK_SHELF = 2  # shelf the carriage is docked against (1 = lowest storage shelf)
+DOCK_SHELF = 2  # level the carriage is docked against (1 = lowest; the top
+# level is the loading drawer)
 DOCK_ROW = 2  # row the carriage is docked against (1 = left)
 ELEV_X = 0.35  # only for "free" (0..1)
 ELEV_Z = 0.55  # only for "free" (0..1)
@@ -323,20 +333,21 @@ def queue(is_load, n):
 
 per_row_nom = per_row(along_nom)
 
-load_row = LOAD_ROW if 1 <= LOAD_ROW <= n_rows else 0
 level_pitch = max(fruit_top_max, lifted_top(tine_top_high)) + CLEAR + SHELF_T
-# the bottom level is taller if the loading row's lift needs it
-level1_pitch = max(
+# the loading drawer's level is taller if the lift over its lips needs it
+load_pitch = max(
     level_pitch,
-    lifted_top(tine_top_high_load) + CLEAR + SHELF_T if load_row else 0,
+    lifted_top(tine_top_high_load) + CLEAR + SHELF_T if LOAD_DRAWER else 0,
 )
 storage_z0 = BASE_H
 storage_z1 = H - TOP_H
 avail_h = storage_z1 - storage_z0 - drop
 n_levels_fit = (
-    1 + int((avail_h - level1_pitch) // level_pitch) if avail_h >= level1_pitch else 0
+    1 + int((avail_h - load_pitch) // level_pitch) if avail_h >= load_pitch else 0
 )
-n_shelves = min(N_SHELVES, n_levels_fit)
+n_shelves = min(N_SHELVES, n_levels_fit)  # levels in the model, incl. the drawer
+n_storage = n_shelves - 1 if LOAD_DRAWER and n_shelves else n_shelves
+drawer_pull = min(max(DRAWER_OPEN, 0), 1) * (shelf_len - DRAWER_KEEP)
 
 # Customer section on top
 top_z = H - TOP_H + 20
@@ -475,10 +486,12 @@ z = storage_z0
 #   Insert: fork high -> carries the fruit to PLACE_GAP behind the rearmost
 #           one -> the elevator lowers, the tines drop into the groove ->
 #           fork retracts under it.
-# Loading row (bottom shelf): staff push fruit in from the front against a
-# fixed rear lip; the fork fetches from it the same way, lifting `lift_load`
-# to clear the lip. The next fruit's place follows from the fetched fruit's
-# length, measured at the scan.
+# Loading drawer (top level, under the customer section): staff pull it out
+# and lay fruit in each row, pushed back against the row's fixed rear lip; the
+# fork fetches from it the same way, lifting `lift_load` to clear the lip. The
+# next fruit's place follows from the fetched fruit's length, measured at the
+# scan. The drawer rides on fixed runners on the side walls; everything else on
+# the level moves with it.
 
 rows_w = n_rows * row_pitch
 x_off = WALL + (inner_w - rows_w) / 2
@@ -530,6 +543,22 @@ def row_floor(cxl, length):
     return []
 
 
+def drawer_front(base):
+    """Insulated drawer front with handle, spanning the housing opening."""
+    y = -FRONT_CLEAR - WALL
+    z0 = -SHELF_T - RUNNER_H
+    z1 = storage_z1 - base - 3  # up to the customer section
+    zm = (z0 + z1) / 2
+    return [
+        (box(0, y, z0, inner_w, WALL, z1 - z0), "Loading drawer – front", "#444444"),
+        (
+            box(inner_w / 2 - 60, y - 18, zm - 6, 120, 18, 12),
+            "Loading drawer – handle",
+            "#212121",
+        ),
+    ]
+
+
 def front_stop(cxl):
     return [
         (
@@ -566,17 +595,25 @@ dock_is_load = False
 push_face = push_rest  # pusher face in the snapshot (v)
 
 for s in range(n_shelves):
-    zc = zone_color(s, n_shelves)
-    temp = ZONE_TEMPS[s] if s < len(ZONE_TEMPS) else "?"
+    is_drawer = s >= n_storage  # the top level, when LOAD_DRAWER
     base = z  # front edge (lowest point)
     T = Pos(WALL, shelf_y0, base) * Rot(SLOPE_DEG, 0, 0)
     local = []
 
-    # Shelf plate with a fork groove per row
-    plate = box(0, 0, -SHELF_T, inner_w, shelf_len, SHELF_T)
+    # Shelf plate with a fork groove per row. The drawer's plate reaches the
+    # drawer front and rests on the runners.
+    if is_drawer:
+        plate = box(
+            0, -FRONT_CLEAR, -SHELF_T, inner_w, shelf_len + FRONT_CLEAR, SHELF_T
+        )
+        label, zc = "Loading drawer – tray (insulated)", "#a1887f"
+    else:
+        plate = box(0, 0, -SHELF_T, inner_w, shelf_len, SHELF_T)
+        temp = ZONE_TEMPS[s] if s < len(ZONE_TEMPS) else "?"
+        label, zc = f"Shelf {s + 1} ({temp} °C)", zone_color(s, n_storage)
     for r in range(n_rows):
         plate -= groove(row_cx(r))
-    local.append((plate, f"Shelf {s + 1} ({temp} °C)", zc))
+    local.append((plate, label, zc))
 
     # Row dividers
     for r in range(n_rows + 1):
@@ -585,12 +622,18 @@ for s in range(n_shelves):
             (box(rx, 0, 0, DIVIDER_T, shelf_len, DIVIDER_H), "Row divider", "#eeeeee")
         )
 
-    # Row floors, front stops / loading lip + avocados
+    # Row floors, front stops / loading lips + avocados
     n_fill = min(round(per_row_nom * FILL), per_row_nom - 1)  # leave room to insert
     for r in range(n_rows):
         cxl = row_cx(r)
-        is_load = s == 0 and r == load_row - 1
-        is_dock = docked and s == DOCK_SHELF - 1 and r == DOCK_ROW - 1
+        is_load = is_drawer
+        # the fork only works in the drawer when it is closed
+        is_dock = (
+            docked
+            and s == DOCK_SHELF - 1
+            and r == DOCK_ROW - 1
+            and not (is_drawer and drawer_pull)
+        )
         if is_load:
             local += row_floor(cxl, stop_face) + load_lip(cxl)
             n = min(round(per_load_row(along_nom) * FILL), per_load_row(along_nom))
@@ -613,28 +656,38 @@ for s in range(n_shelves):
         lab = "Avocado (loaded, not scanned)" if is_load else "Avocado"
         for cy in cys:
             local.append((Pos(cxl, cy, seat_nom) * avocado_shape(), lab, col))
-        if is_load:
-            # opening in the front where staff fill the loading row
-            for fz in (-SHELF_T - 10, fruit_top_max + 12):
-                local.append(
-                    (
-                        box(
-                            cxl - row_pitch / 2,
-                            -FRONT_CLEAR - WALL,
-                            fz,
-                            row_pitch,
-                            WALL,
-                            10,
-                        ),
-                        "Loading opening – frame",
-                        "#444444",
-                    )
+
+    if is_drawer:
+        local += drawer_front(base)
+        local = [(Pos(0, -drawer_pull, 0) * shp, lab, col) for shp, lab, col in local]
+        # fixed parts: runners under the tray's edges, and the closed sensor
+        for rx in (0, inner_w - RUNNER_W):
+            local.append(
+                (
+                    box(
+                        rx,
+                        -FRONT_CLEAR,
+                        -SHELF_T - RUNNER_H,
+                        RUNNER_W,
+                        shelf_len + FRONT_CLEAR,
+                        RUNNER_H,
+                    ),
+                    "Loading drawer – runner (fixed)",
+                    "#9e9e9e",
                 )
+            )
+        local.append(
+            (
+                box(RUNNER_W, -FRONT_CLEAR, -SHELF_T - RUNNER_H, 12, 8, RUNNER_H),
+                "Sensor: loading drawer closed",
+                "#212121",
+            )
+        )
 
     for shp, lab, col in local:
         add(T * shp, lab, col)
 
-    z += level1_pitch if s == 0 else level_pitch
+    z += load_pitch if is_drawer else level_pitch
 
 # ---------------------------------------------------------------
 # CUSTOMER SECTION ON TOP
@@ -898,13 +951,14 @@ if __name__ == "__main__":
     if tip_lo > tip_hi:
         print("   ! size range too wide: long fruit overhang the tip past their centre")
     print(
-        f" Lift per fetch / insert:   {lift:.0f} mm, loading row {lift_load:.0f} mm"
-        "  (elevator Z)"
+        f" Lift per fetch / insert:   {lift:.0f} mm"
+        + (f", loading drawer {lift_load:.0f} mm" if LOAD_DRAWER else "")
+        + "  (elevator Z)"
     )
     print(f" Fork reach (zip chain):    {fork_reach:.0f} mm  (rest -> front of a row)")
     print(f" Cradle pocket (W x D):     {cr_w:.0f} x {push_rest - cr_v0:.0f} mm")
     print(f" Elevator shaft depth:      {elev_depth:.0f} mm")
-    if load_row:
+    if LOAD_DRAWER:
         lip_rel = [lip_top - (row_seat(ac, h) - h / 2) for ac, _, h in SIZES]
         print(
             f" Loading lip:               {min(lip_rel):.0f}–{max(lip_rel):.0f} mm"
@@ -933,23 +987,23 @@ if __name__ == "__main__":
     print(f" Avocados per shelf:        {n_rows * per_row_nom}")
     print(
         f" Level height:              {level_pitch:.0f} mm"
-        + (f"  (bottom level {level1_pitch:.0f})" if level1_pitch > level_pitch else "")
+        + (f"  (loading drawer {load_pitch:.0f})" if load_pitch > level_pitch else "")
     )
+    print(f" Levels that fit:           {n_levels_fit}  (desired {N_SHELVES})")
     print(
-        f" Levels that fit:           {n_levels_fit}"
-        + (f"  (row {load_row} on shelf 1 used for loading)" if load_row else "")
+        f" Storage shelves in model:  {n_storage}"
+        + ("  + loading drawer on top" if LOAD_DRAWER and n_shelves else "")
     )
-    print(f" Storage shelves in model:  {n_shelves}  (desired {N_SHELVES})")
-    load_cap = per_row_nom if load_row else 0
-    print(f" Total storage capacity:    {n_shelves * n_rows * per_row_nom - load_cap}")
-    print(
-        f"   (all largest fruit:      "
-        f"{n_shelves * n_rows * per_row(along_max) - (per_row(along_max) if load_row else 0)})"
-    )
-    if load_row:
-        print(f" Loading row buffer:        {per_load_row(along_nom)}")
+    print(f" Total storage capacity:    {n_storage * n_rows * per_row_nom}")
+    print(f"   (all largest fruit:      {n_storage * n_rows * per_row(along_max)})")
+    if LOAD_DRAWER:
+        print(
+            f" Loading drawer buffer:     {n_rows * per_load_row(along_nom)}"
+            f"  (largest fruit {n_rows * per_load_row(along_max)}),"
+            f" pulls out {shelf_len - DRAWER_KEEP:.0f} mm"
+        )
     if n_shelves < N_SHELVES:
-        need = level1_pitch + (N_SHELVES - 1) * level_pitch + drop + BASE_H + TOP_H
+        need = load_pitch + (N_SHELVES - 1) * level_pitch + drop + BASE_H + TOP_H
         print(f" ! {N_SHELVES} shelves require approx. {need:.0f} mm total height.")
     print("=" * 56)
 
