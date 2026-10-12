@@ -19,12 +19,16 @@ so a short carriage reaches the front of a long row.
   - Drive: the pin ends stick out at the sides and run in a pair of sprocket
     plates above the chain; the sprocket also holds the chain down against
     the lever of the fruit.
+  - Keel: a narrow fin under each link. The chain body rides above the
+    shelf's rods, the keel runs in the gap between the two rods the fruit
+    rests on, and the carriage supports the chain through it - low enough
+    that a fruit on the tines passes over that support.
 
 Link frame (mm): v along the chain (pin A at v = 0, pin B at v = PITCH),
 u across it, w up from the bottom face (the butt side). Each link has a tongue
 in the middle layer round pin B and a clevis (two outer plates) round pin A,
 so every link is the same part. Pins are pressed into the clevis and turn in
-the tongue.
+the tongue. The keel hangs below the bottom face, in the middle of the tongue.
 
 Run:    python rigid_chain.py
 Output: STL files for printing in ./rigid_chain_print/, a STEP of the bench
@@ -39,6 +43,7 @@ from build123d import (
     Circle,
     Color,
     Compound,
+    Polygon,
     Pos,
     Rectangle,
     Rot,
@@ -54,6 +59,10 @@ PITCH = 12  # pin to pin
 CHAIN_W = 16  # width of the chain body
 CHAIN_H = 31  # height; stiffness grows with its cube
 TONGUE_W = 7  # middle layer (tongue); the two outer layers are the clevis
+KEEL_W = 4  # keel under the tongue: width (fits a rod gap with clearance)
+KEEL_H = 7  # ... depth below the bottom face
+KEEL_END = 1  # ... stops this short of each link end, so keels never touch
+KEEL_CHAMFER = 1.5  # ... chamfered ends, to ride onto the carriage's support
 
 # Pins: 3 mm steel. Silver steel (h8) cut to length; ream the tongue holes
 # with a 3 mm H7 reamer (turning fit), the clevis holes are printed tight and
@@ -110,6 +119,7 @@ CLAMP_LINKS = 3  # links held in the bench clamp
 t_clevis = (CHAIN_W - TONGUE_W - 2 * FIT_U) / 2  # outer plate thickness
 pin_len = CHAIN_W + 2 * PIN_STICK
 w_pin = CHAIN_H - PIN_E  # pin line above the bottom face
+chain_depth = CHAIN_H + KEEL_H  # keel bottom to top face
 lever = w_pin - BUTT_CONTACT / 2  # pins (tension) <-> butt faces (compression)
 butt_h = CHAIN_H - 2 * PIN_E - FIT  # height of the flat butt faces
 bend_step = 2 * math.pi / SPROCKET_N  # angle between links on the sprocket
@@ -121,7 +131,9 @@ bend_max = 2 * math.atan2(x_free, PIN_E)
 
 E_MOD, S_TENS, S_BEAR, RHO = MATERIALS[MATERIAL]
 EI = ETA * E_MOD * CHAIN_W * CHAIN_H**3 / 12  # N mm2
-q_chain = INFILL * RHO * 1e-3 * CHAIN_W * CHAIN_H * 9.81e-3  # N/mm
+keel_area = KEEL_W * KEEL_H * (PITCH - 2 * KEEL_END - KEEL_CHAMFER) / PITCH
+q_chain = INFILL * RHO * 1e-3 * (CHAIN_W * CHAIN_H + keel_area) * 9.81e-3  # N/mm
+assert KEEL_W <= TONGUE_W, "the keel must sit under the tongue"
 
 
 # ---------------------------------------------------------------
@@ -136,11 +148,17 @@ def _circle(x, y, r):
 
 
 def link_profile(layer):
-    """Side profile (v, w) of one layer of a link. layer: "tongue", "clevis",
-    or "gap" (the thin slice between them)."""
+    """Side profile (v, w) of one layer of a link. layer: "tongue", "keel"
+    (the middle of the tongue, with the keel below it), "clevis", or "gap"
+    (the thin slice between them)."""
     p = PITCH
     prof = _rect(0, 0, p, CHAIN_H)
-    if layer == "tongue":
+    if layer == "keel":
+        e, c = KEEL_END, KEEL_CHAMFER
+        prof += Polygon(  # counter-clockwise, so the face's normal stays +Z
+            (e, 0.1), (e + c, -KEEL_H), (p - e - c, -KEEL_H), (p - e, 0.1), align=None
+        )
+    if layer in ("tongue", "keel"):
         prof += _circle(p, w_pin, PIN_E)
         prof -= _circle(0, w_pin, PIN_E + FIT)
         prof -= _circle(p, w_pin, TONGUE_HOLE / 2)
@@ -157,7 +175,9 @@ def link_profile(layer):
 LAYERS = [  # (layer, u0, u1)
     ("clevis", -CHAIN_W / 2, -TONGUE_W / 2 - FIT_U),
     ("gap", -TONGUE_W / 2 - FIT_U, -TONGUE_W / 2),
-    ("tongue", -TONGUE_W / 2, TONGUE_W / 2),
+    ("tongue", -TONGUE_W / 2, -KEEL_W / 2),
+    ("keel", -KEEL_W / 2, KEEL_W / 2),
+    ("tongue", KEEL_W / 2, TONGUE_W / 2),
     ("gap", TONGUE_W / 2, TONGUE_W / 2 + FIT_U),
     ("clevis", TONGUE_W / 2 + FIT_U, CHAIN_W / 2),
 ]
@@ -178,7 +198,8 @@ def pin_solid():
 
 
 def straight_chain(n, v0=0.0, link=None):
-    """n links in a straight line, first pin at v = v0, bottom face at w = 0.
+    """n links in a straight line, first pin at v = v0, bottom face at w = 0
+    (the keels hang below it).
     Returns [(shape, label, colour)] in the chain frame (X = v, Z = w)."""
     link = link or link_solid()
     pin = pin_solid()
@@ -221,22 +242,22 @@ def sprocket_half():
 
 
 def bench_clamp():
-    """U-channel that holds the root of a chain for the bench test. The pin
-    ends drop into slots in the side walls; bolt it to a table edge."""
+    """U-channel that holds the root of a chain for the bench test. The chain
+    stands on its keels on the floor, the pin ends drop into slots in the side
+    walls; bolt it to a table edge."""
     length = CLAMP_LINKS * PITCH + PITCH / 2
     inner = pin_len + 0.6
     wall, floor = 5, 5
-    h = CHAIN_H + 4
+    h = chain_depth + 4
+    w_slot = floor + KEEL_H + w_pin  # pin line above the clamp's underside
     part = extrude(_rect(0, 0, length, floor + h), amount=inner / 2 + wall, both=True)
     part -= Pos(0, 0, floor) * extrude(
         _rect(0, 0, length, h + 1), amount=CHAIN_W / 2 + 0.3, both=True
     )
     for k in range(1, CLAMP_LINKS + 1):  # slots for the pin ends, from the top
         v = k * PITCH
-        slot = _rect(
-            v - PIN_D / 2 - 0.15, floor + w_pin, v + PIN_D / 2 + 0.15, floor + h + 1
-        )
-        slot += _circle(v, floor + w_pin, PIN_D / 2 + 0.15)
+        slot = _rect(v - PIN_D / 2 - 0.15, w_slot, v + PIN_D / 2 + 0.15, floor + h + 1)
+        slot += _circle(v, w_slot, PIN_D / 2 + 0.15)
         part -= extrude(slot, amount=inner / 2, both=True)
     part = Rot(90, 0, 0) * part  # (v, w) -> (X, Z)
     for x in (length * 0.25, length * 0.75):  # mounting holes through the floor
@@ -253,7 +274,7 @@ def joint_overlap(angle_deg):
     to the sprocket's angle, and > 0 for any downward bend (the butt faces
     stop it)."""
     worst = 0.0
-    for layer in ("tongue", "clevis", "gap"):
+    for layer in ("tongue", "keel", "clevis", "gap"):
         a = link_profile(layer)
         b = Pos(PITCH, w_pin) * Rot(0, 0, angle_deg) * Pos(0, -w_pin) * a
         inter = a & b
@@ -319,8 +340,8 @@ def report_lines(
     """Load table for the report. fruit_lens overrides FRUIT lengths by name."""
     lines = [
         (
-            f" Chain: {MATERIAL}, pitch {PITCH}, {CHAIN_W} x {CHAIN_H} mm,"
-            f" pins {PIN_D} x {pin_len:.0f} mm steel"
+            f" Chain: {MATERIAL}, pitch {PITCH}, {CHAIN_W} x {CHAIN_H} mm"
+            f" + keel {KEEL_W} x {KEEL_H}, pins {PIN_D} x {pin_len:.0f} mm steel"
         ),
         f" Reach beyond support:      {reach_free:.0f} mm  (back span {back_span:.0f} mm)",
         "   fruit                   mass    moment  SF   droop  +play  tilt",
@@ -351,7 +372,9 @@ if __name__ == "__main__":
     out = Path("rigid_chain_print")
     out.mkdir(exist_ok=True)
     link = link_solid()
-    # print standing on the bottom (butt) face: pin holes horizontal, no supports
+    # print standing on the keel, with supports under the bottom (butt) face
+    # either side of it (PrusaSlicer: supports on build plate only); pin holes
+    # horizontal
     export_stl(link, str(out / "link.stl"))
     export_stl(sprocket_half(), str(out / "sprocket_half.stl"))
     export_stl(bench_clamp(), str(out / "bench_clamp.stl"))
@@ -362,7 +385,7 @@ if __name__ == "__main__":
     clamp.label, clamp.color = "Bench clamp", Color("#ffb300")
     parts.append(clamp)
     for shp, lab, col in straight_chain(BENCH_LINKS, link=link):
-        shp = Pos(0, 0, 5) * shp
+        shp = Pos(0, 0, 5 + KEEL_H) * shp  # keels on the clamp floor
         shp.label, shp.color = lab, Color(col)
         parts.append(shp)
     export_step(
@@ -375,7 +398,8 @@ if __name__ == "__main__":
     print("=" * 64)
     print(
         f" Link: {PITCH} x {CHAIN_W} x {CHAIN_H} mm, clevis plates {t_clevis:.1f} mm,"
-        f" tongue {TONGUE_W} mm, butt faces {butt_h:.0f} mm high"
+        f" tongue {TONGUE_W} mm, butt faces {butt_h:.0f} mm high,"
+        f" keel {KEEL_W} x {KEEL_H} mm"
     )
     print(
         f" Curl: sprocket {SPROCKET_N} teeth, pitch Ø {2 * r_sprocket:.1f} mm,"

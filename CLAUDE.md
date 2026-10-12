@@ -12,11 +12,13 @@ are in `README.md` (Norwegian).
 
 - `src/modna/lagra/avocado_manager.py` — parametric concept model of the whole
   machine in build123d. One flat script: PARAMETERS → DERIVED QUANTITIES →
-  geometry sections (housing, loading level, shelves with fork grooves,
-  top section, elevator with rigid-chain fork carriage, scan station) → STEP
-  export + capacity report.
+  geometry sections (housing, rod-bed shelves with software-chosen lanes and
+  a loading drawer, top section, elevator with rigid-chain fork carriage, scan
+  station) → STEP export + capacity report. Per-level temperature zones are
+  left out for now.
 - `src/modna/lagra/rigid_chain.py` — the fork's 3D-printable rigid chain
-  (rigid downwards, curls upwards): link geometry, joint check, load/droop
+  (rigid downwards, curls upwards, with a keel that runs between the shelf
+  rods): link geometry, joint check, load/droop
   model. The machine model imports it (`import rigid_chain as rc`) for the
   chain, sprocket, vertical magazine and the report. Run on its own it writes
   printable STLs (link, sprocket, bench clamp) and a bench-test STEP to
