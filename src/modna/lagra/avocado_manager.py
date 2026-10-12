@@ -14,8 +14,10 @@ All dimensions are controlled by the parameters below. The script also
 prints a capacity report, so you can see what actually fits.
 """
 
+import itertools
 import math
 
+import rigid_chain as rc  # the fork's chain: links, loads, drive
 from build123d import (
     Align,
     Box,
@@ -89,11 +91,13 @@ RUNNER_H = 10
 DRAWER_KEEP = 60  # drawer length that stays on the runners when fully open
 DRAWER_OPEN = 0.6  # snapshot: how far the drawer is pulled out (0..1)
 
-# Fork on the carriage: two tines + pusher face, driven by a zip chain (two
-# chains that zip into a rigid bar, and coil into a magazine when apart), so
-# it reaches the front of a row from a shallow carriage. It is the only
-# actuator on the carriage; the elevator's Z axis does the lifting. Each row
-# has a groove along its whole length for the tines and the chain.
+# Fork on the carriage: two tines + pusher face, driven by a rigid chain (it
+# can only bend upwards, so it holds the fruit out straight, and turns up into
+# a vertical magazine behind the cradle), so it reaches the front of a row
+# from a shallow carriage. It is the only actuator on the carriage; the
+# elevator's Z axis does the lifting. Each row has a groove along its whole
+# length for the tines and the chain. The chain itself (links, pins,
+# sprocket, loads) is in rigid_chain.py.
 TINE_W = 5  # tine width
 TINE_H = 8  # tine height
 TINE_GAP = 22  # centre distance between the two tines
@@ -102,10 +106,8 @@ LIFT_CLEAR = 3  # a carried fruit clears the row floor (and loading lip) by this
 TIP_MARGIN = 8  # the tip stays this far ahead of a fruit's centre and behind the next
 PUSHER_T = 6  # pusher face thickness
 PUSHER_H = 30  # pusher face height above the tines
-CHAIN_W = 12  # zip chain width (runs between the tines)
-CHAIN_H = 20  # zip chain height
-ZIP_D = 30  # zipper + drive sprocket, at the back of the cradle
-MAG_H = 70  # chain magazine under the zipper
+HEAD_L = 10  # chain adapter behind the pusher face, up to the first pin
+HEAD_G = 40  # fork head (pusher + tines + adapter) mass, g
 
 # Elevator (rear side). The shaft depth follows from the carriage stack below.
 ELEV_MODE = "scan"  # "fetch":  the fork has lifted the rearmost avocado of a row
@@ -119,15 +121,19 @@ ELEV_X = 0.35  # only for "free" (0..1)
 ELEV_Z = 0.55  # only for "free" (0..1)
 FORK_SNAPSHOT = 0.5  # only for "insert": how far towards its place the avocado is
 
-# Carriage stack, front to back: cradle pocket, pusher face, zipper, carriage
-# plate, bearing blocks, Z rail, Z column
+# Carriage, front to back: cradle pocket, pusher face, drive sprocket, then
+# the chain magazine - a straight vertical channel the chain stands up in.
+# Two Z columns, one each side of the magazine, carry the carriage on side
+# cheeks; the shaft depth follows from the sprocket and magazine.
 CR_GAP = 5  # gap between the shelves' rear edge and the cradle
 CR_WALL_H = 50  # cradle side wall height above the tines
-CARRIAGE_PLATE_T = 16
-CARRIAGE_UP = 100  # carriage plate top above the dock origin
-CARRIAGE_DOWN = 55  # carriage plate bottom below the dock origin
-BEARING_T = 12
-Z_RAIL_T = 6
+MAG_CLEAR = 3  # clearance around the sprocket and magazine
+MAG_WALL = 3  # magazine housing wall
+CHEEK_T = 8  # carriage side cheeks
+CHEEK_DOWN = 25  # cheeks reach this far below the cradle base
+BEARING_T = 12  # Z carriage block (MGN12H-like): depth, width
+BEARING_W = 27
+Z_RAIL_T = 8
 COLUMN_T = 24
 
 # Scan station at the top of the elevator shaft (multispectral camera + LEDs).
@@ -178,9 +184,9 @@ def seat_height(across, height):
         r, g = RAIL_D / 2, RAIL_GAP / 2
         ts = [2 * math.pi * i / 720 for i in range(720)]
 
-        def clears(zc):
+        def clears(z_c):
             return all(
-                math.hypot(a * math.cos(t) - g, zc + b * math.sin(t) - r) >= r
+                math.hypot(a * math.cos(t) - g, z_c + b * math.sin(t) - r) >= r
                 for t in ts
             )
 
@@ -290,16 +296,23 @@ tip_lo = along_max / 2 + TIP_MARGIN
 tip_hi = along_min - TIP_MARGIN
 tine_len = (tip_lo + tip_hi) / 2 if tip_lo <= tip_hi else tip_hi
 
-# Carriage stack in v (backwards from the shelf's rear edge, v < 0 is inside
-# the row): cradle pocket for the largest fruit, pusher face, zipper,
-# carriage plate, Z guide
+# Carriage in v (backwards from the shelf's rear edge, v < 0 is inside the
+# row): cradle pocket for the largest fruit, pusher face, drive sprocket and
+# the vertical magazine, with the Z guides beside it at the back
 cr_v0 = CR_GAP  # cradle front
 push_rest = cr_v0 + along_max + CLEAR  # pusher face at rest (back of the pocket)
-cr_v1 = push_rest + PUSHER_T + ZIP_D  # back of cradle = carriage plate
-v_bear = cr_v1 + CARRIAGE_PLATE_T
-v_zrail = v_bear + BEARING_T
-v_col = v_zrail + Z_RAIL_T
-elev_depth = v_col + COLUMN_T  # depth of the elevator shaft
+cr_v1 = push_rest + PUSHER_T + MAG_CLEAR  # back of the cradle
+v_drive = cr_v1 + rc.r_plate  # sprocket centre, clear of the pusher at rest
+# the chain turns up round the sprocket (pins on the inside) and stands in a
+# channel from mag_v0 to mag_v1 (outside of the walls)
+mag_v0 = v_drive + rc.r_sprocket - rc.PIN_E - rc.MAG_FIT - MAG_WALL
+mag_v1 = mag_v0 + rc.CHAIN_H + 2 * (rc.MAG_FIT + MAG_WALL)
+elev_depth = max(  # depth of the elevator shaft
+    mag_v1 + MAG_CLEAR, cr_v1 + 2 * CHEEK_T + BEARING_T + Z_RAIL_T + COLUMN_T
+)
+v_col = elev_depth - COLUMN_T
+v_zrail = v_col - Z_RAIL_T
+v_bear = v_zrail - BEARING_T
 
 # Shelves
 shelf_y0 = WALL + FRONT_CLEAR
@@ -384,18 +397,38 @@ x_travel1 = W - WALL - 30
 z_travel0 = storage_z0
 z_deliver = top_z + top_len * math.sin(top_slope)  # rear end of the top trays
 
+# Rigid chain on the carriage (fork frame). It runs from the fork head,
+# sliding on the cradle base, back to the drive sprocket, with its underside
+# level with the tines'. There it turns up a quarter round the sprocket and
+# stands in the vertical magazine, which holds the full stroke.
+w_fork = tine_top_low - TINE_H  # underside of the tines and the chain
+w_drive = w_fork + rc.w_pin + rc.r_sprocket  # sprocket centre
+chain_len = fork_reach + rc.PITCH  # stroke + a spare link
+mag_w = rc.pin_len + 2 * MAG_WALL  # magazine width, pin ends included
+mag_top = w_drive + chain_len + MAG_WALL
+carriage_up = mag_top  # carriage top above the dock origin
+carriage_down = 6 - w_fork + CHEEK_DOWN  # under the cradle base
+# Loads on the chain at full reach: it sticks out beyond the cradle's front
+# edge and is held down by the sprocket
+chain_free = cr_v0 - (v_deep + PUSHER_T)
+chain_back = v_drive - cr_v0
+
 # Scan station: the camera looks down (or sideways/down if CAM_SIDE > 0) into
-# the cradle. Its lowest point must clear the avocado in the cradle when the
-# carriage passes below it on its way to the top section (fork high).
+# the cradle. Its lowest point must clear the avocado in the cradle (and the
+# top magazine, if it reaches under the camera) when the carriage passes below
+# it on its way to the top section (fork high).
 cam_tilt = math.atan2(CAM_UP, CAM_SIDE)  # below horizontal
 cam_half_w = CAM_BODY[0] / 2 * math.cos(cam_tilt) + CAM_BODY[2] / 2 * math.sin(cam_tilt)
 lens_reach = (CAM_BODY[2] / 2 + 6) * math.sin(cam_tilt)  # lens tip
 cam_lo = cradle_avo[2] + CAM_UP - max(cam_half_w, lens_reach)  # rel. dock origin
 cam_hi = cradle_avo[2] + CAM_UP + cam_half_w
 scan_x = x_travel0 + SCAN_X * (x_travel1 - x_travel0)
-z_scan = z_deliver + lift + cradle_top + SCAN_CLEAR - cam_lo
+under_cam = cradle_top
+if cradle_avo[1] + CAM_BODY[1] / 2 > mag_v0:  # the camera reaches over the magazine
+    under_cam = max(under_cam, carriage_up)
+z_scan = z_deliver + lift + under_cam + SCAN_CLEAR - cam_lo
 z_travel1 = max(z_scan, z_deliver + lift)  # highest dock origin
-z_rail = z_travel1 + CARRIAGE_UP + SCAN_CLEAR  # upper X rail (bottom)
+z_rail = z_travel1 + carriage_up + SCAN_CLEAR  # upper X rail (bottom)
 h_back = max(z_rail + 18, z_scan + cam_hi + 10) + ROOF_T
 
 # ---------------------------------------------------------------
@@ -405,8 +438,9 @@ parts = []
 
 
 def add(shape, label, color):
+    """color: "#rrggbb", an (r, g, b) tuple, or ("#rrggbb", alpha)."""
     shape.label = label
-    shape.color = Color(color)
+    shape.color = Color(*color) if isinstance(color[1], (int, float)) else Color(color)
     parts.append(shape)
     return shape
 
@@ -606,14 +640,14 @@ for s in range(n_shelves):
         plate = box(
             0, -FRONT_CLEAR, -SHELF_T, inner_w, shelf_len + FRONT_CLEAR, SHELF_T
         )
-        label, zc = "Loading drawer – tray (insulated)", "#a1887f"
+        label, plate_col = "Loading drawer – tray (insulated)", "#a1887f"
     else:
         plate = box(0, 0, -SHELF_T, inner_w, shelf_len, SHELF_T)
         temp = ZONE_TEMPS[s] if s < len(ZONE_TEMPS) else "?"
-        label, zc = f"Shelf {s + 1} ({temp} °C)", zone_color(s, n_storage)
+        label, plate_col = f"Shelf {s + 1} ({temp} °C)", zone_color(s, n_storage)
     for r in range(n_rows):
         plate -= groove(row_cx(r))
-    local.append((plate, label, zc))
+    local.append((plate, label, plate_col))
 
     # Row dividers
     for r in range(n_rows + 1):
@@ -731,11 +765,15 @@ for i, name in enumerate(TOP_SECTIONS):
 # (frame F), so the fork runs parallel to the row floor.
 #
 # The fork is the only actuator on the carriage: two tines with a pusher face,
-# pushed and pulled by a zip chain. The chain's two halves separate in the
-# zipper at the back of the cradle and coil into the magazine below it, so a
-# shallow carriage reaches the front of a row. Lifting is done by the Z axis.
+# pushed and pulled by a rigid chain (rigid_chain.py). The chain runs back
+# along the cradle base to a sprocket pair on its pin ends, turns a quarter
+# up round it and stands in a vertical magazine, so a shallow carriage
+# reaches the front of a row. Lifting is done by the Z axis, whose two
+# columns stand either side of the magazine.
 # Fetch / insert: see the shelf section. The snapshots show the fork high,
-#   with the rearmost avocado lifted, or on its way to its place.
+#   with the rearmost avocado lifted, or on its way to its place. The chain
+#   droops a little and always the same way, so the Z axis follows a droop
+#   table (per fork extension) to keep the tines at their height in the row.
 # Deliver: the fork, high, reaches over the rear end of a top tray, the
 #   elevator lowers so the tines pass through the tray's slot, and the fruit
 #   rolls down to the customer.
@@ -767,52 +805,88 @@ def fbox(u, v, w, du, dv, dw):
     return F * box(u, v, w, du, dv, dw)
 
 
-# Gantry: X rails at the bottom and top, Z column with linear rail
+def chain_pins(v_first, n):
+    """Pin centres (v, w) of the chain in the fork frame: from the first pin,
+    straight back to the sprocket, a quarter turn up round it, then straight
+    up the magazine. Each pin is one pitch (chord) from the last."""
+    r, w_line = rc.r_sprocket, w_fork + rc.w_pin
+    quarter = math.pi / 2 * r
+
+    def at(t):  # t: path length from the sprocket's tangent point
+        if t <= 0:
+            return (v_drive + t, w_line)
+        if t <= quarter:
+            a = t / r
+            return (v_drive + r * math.sin(a), w_drive - r * math.cos(a))
+        return (v_drive + r, w_drive + t - quarter)
+
+    t, pts = v_first - v_drive, [at(v_first - v_drive)]
+    while len(pts) < n:
+        lo, hi = t, t + 2 * rc.PITCH
+        for _ in range(40):
+            mid = (lo + hi) / 2
+            q = at(mid)
+            near = math.dist(q, pts[-1]) < rc.PITCH
+            lo, hi = (mid, hi) if near else (lo, mid)
+        t = (lo + hi) / 2
+        pts.append(at(t))
+    return pts
+
+
+# Gantry: X rails at the bottom and top; two Z columns with linear rails,
+# one each side of the chain magazine
 for zr in (z_travel0 - 30, z_rail):
     add(box(WALL, D - WALL - COLUMN_T, zr, inner_w, COLUMN_T, 18), "X rail", "#607d8b")
-col_z0, col_z1 = z_travel0 - 12, z_rail
-add(
-    box(ox - 20, oy + v_col, col_z0, 40, COLUMN_T, col_z1 - col_z0),
-    "Z actuator (column)",
-    "#455a64",
-)
-add(
-    box(ox - 8, oy + v_zrail, col_z0, 16, Z_RAIL_T, col_z1 - col_z0),
-    "Z linear rail",
-    "#b0bec5",
-)
+col_u = mag_w / 2 + MAG_CLEAR + BEARING_W / 2  # column centre, sideways
+col_z0, col_z1 = min(z_travel0 - 12, z_travel0 - carriage_down), z_rail
+for sgn in (-1, 1):
+    cu = ox + sgn * col_u
+    add(
+        box(cu - COLUMN_T / 2, oy + v_col, col_z0, COLUMN_T, COLUMN_T, col_z1 - col_z0),
+        "Z column",
+        "#455a64",
+    )
+    add(
+        box(cu - 6, oy + v_zrail, col_z0, 12, Z_RAIL_T, col_z1 - col_z0),
+        "Z linear rail",
+        "#b0bec5",
+    )
 
-# Carriage
-plate_w = cr_w + 8
-add(
-    cbox(
-        -plate_w / 2,
-        cr_v1,
-        -CARRIAGE_DOWN,
-        plate_w,
-        CARRIAGE_PLATE_T,
-        CARRIAGE_UP + CARRIAGE_DOWN,
-    ),
-    "Carriage plate",
-    "#37474f",
-)
-for w0 in (-CARRIAGE_DOWN + 10, CARRIAGE_UP - 45):
-    add(cbox(-22, v_bear, w0, 44, BEARING_T, 30), "Bearing block", "#263238")
+# Carriage: side cheeks from the cradle back to the Z bearing blocks, either
+# side of the sprocket and magazine
+cheek_u = mag_w / 2 + MAG_CLEAR
+for sgn in (-1, 1):
+    add(
+        cbox(
+            cheek_u if sgn > 0 else -cheek_u - CHEEK_T,
+            cr_v1,
+            -carriage_down,
+            CHEEK_T,
+            v_bear - cr_v1,
+            carriage_up + carriage_down,
+        ),
+        "Carriage – side cheek",
+        "#37474f",
+    )
+    for w0 in (-carriage_down + 5, carriage_up - 35):
+        add(
+            cbox(sgn * col_u - BEARING_W / 2, v_bear, w0, BEARING_W, BEARING_T, 30),
+            "Bearing block",
+            "#263238",
+        )
 
-# Cradle: base the fork slides on, and side walls. There is no cradle floor -
-# the fruit rides on the tines.
+# Cradle: base the fork and chain slide on, and side walls. There is no
+# cradle floor - the fruit rides on the tines.
 tt = tine_top_low  # tine top
-w_fork = tt - TINE_H  # underside of tines and chain
-zip_v = cr_v1 - ZIP_D  # front of the zipper
 add(
-    fbox(-cr_w / 2, cr_v0, w_fork - 6, cr_w, zip_v - cr_v0, 5),
+    fbox(-cr_w / 2, cr_v0, w_fork - 6, cr_w, cr_v1 - cr_v0, 5),
     "Cradle – base",
     "#ffb300",
 )
 for sgn in (-1, 1):
     u0 = cr_w / 2 if sgn > 0 else -cr_w / 2 - 4
     add(
-        fbox(u0, cr_v0, w_fork - 6, 4, cr_v1 - cr_v0 - 3, tt + CR_WALL_H - w_fork + 6),
+        fbox(u0, cr_v0, w_fork - 6, 4, cr_v1 - cr_v0, tt + CR_WALL_H - w_fork + 6),
         "Cradle – side wall",
         "#ffa000",
     )
@@ -822,8 +896,8 @@ add(
     "#212121",
 )
 
-# Fork: tines + pusher face, pushed by the zip chain. Everything that enters a
-# row under a fruit stays inside the groove.
+# Fork: tines + pusher face + chain adapter, pushed by the rigid chain.
+# Everything that enters a row under a fruit stays inside the groove.
 fork_w = TINE_GAP + TINE_W
 for sgn in (-1, 1):
     add(
@@ -843,22 +917,69 @@ add(
     "Fork – pusher face",
     "#f4511e",
 )
-chain_len = zip_v - (push_face + PUSHER_T)
-if chain_len > 0.5:
+v_chain0 = push_face + PUSHER_T + HEAD_L  # first pin
+add(
+    fbox(
+        -rc.CHAIN_W / 2,
+        push_face + PUSHER_T,
+        w_fork,
+        rc.CHAIN_W,
+        HEAD_L - rc.PIN_E - rc.FIT,
+        rc.CHAIN_H,
+    ),
+    "Fork – chain adapter",
+    "#f4511e",
+)
+
+# Rigid chain: as many links as the stroke needs, from the fork head along
+# the cradle, round the sprocket and up the magazine
+n_links = math.ceil((v_drive - (push_rest + PUSHER_T + HEAD_L) + chain_len) / rc.PITCH)
+pins = chain_pins(v_chain0, n_links + 1)
+link, pin = rc.link_solid(), rc.pin_solid()
+to_chain = Rot(0, 0, 90)  # link frame (X along, Z up) -> fork frame (v, w)
+for a, b in itertools.pairwise(pins):
+    ang = math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))
     add(
-        fbox(-CHAIN_W / 2, push_face + PUSHER_T, w_fork, CHAIN_W, chain_len, CHAIN_H),
-        "Fork – zip chain (zipped, rigid)",
-        "#78909c",
+        F * Pos(0, *a) * Rot(ang, 0, 0) * Pos(0, 0, -rc.w_pin) * to_chain * link,
+        "Rigid chain – link",
+        "#cfd8dc",
+    )
+for q in pins:
+    add(F * Pos(0, *q) * to_chain * pin, "Rigid chain – pin", "#90a4ae")
+
+# Drive: a sprocket pair on the pin ends (it also holds the chain down
+# against the fruit's lever), motor outside a cheek, and the magazine
+for sgn in (-1, 1):
+    u_c = sgn * (rc.CHAIN_W / 2 + rc.FIT_U + rc.SPROCKET_T / 2)
+    add(
+        F
+        * Pos(u_c, v_drive, w_drive)
+        * Rot(0, 90, 0)
+        * Cylinder(rc.r_plate, rc.SPROCKET_T),
+        "Chain drive – sprocket (on the pin ends)",
+        "#546e7a",
     )
 add(
-    fbox(-20, zip_v, w_fork - 6, 40, ZIP_D - 3, CHAIN_H + 12),
-    "Zip-chain drive (zipper + motor)",
-    "#37474f",
+    fbox(cheek_u + CHEEK_T, v_drive - 15, w_drive - 15, 20, 30, 30),
+    "Chain drive – motor + gears",
+    "#263238",
 )
 add(
-    fbox(-22, zip_v, w_fork - 6 - MAG_H, 44, ZIP_D - 3, MAG_H),
-    "Chain magazine (halves apart)",
-    "#546e7a",
+    fbox(-mag_w / 2, mag_v0, w_drive, mag_w, mag_v1 - mag_v0, mag_top - w_drive),
+    "Chain magazine (vertical channel)",
+    ("#78909c", 0.3),
+)
+add(
+    fbox(
+        -mag_w / 2,
+        v_drive,
+        w_fork - MAG_WALL,
+        mag_w,
+        mag_v1 - v_drive,
+        w_drive - w_fork + MAG_WALL,
+    ),
+    "Chain magazine – guide round the sprocket",
+    ("#78909c", 0.3),
 )
 
 # Avocado on the fork: resting in the cradle, lifted out of a row (rear just
@@ -955,7 +1076,7 @@ if __name__ == "__main__":
         + (f", loading drawer {lift_load:.0f} mm" if LOAD_DRAWER else "")
         + "  (elevator Z)"
     )
-    print(f" Fork reach (zip chain):    {fork_reach:.0f} mm  (rest -> front of a row)")
+    print(f" Fork reach (chain):        {fork_reach:.0f} mm  (rest -> front of a row)")
     print(f" Cradle pocket (W x D):     {cr_w:.0f} x {push_rest - cr_v0:.0f} mm")
     print(f" Elevator shaft depth:      {elev_depth:.0f} mm")
     if LOAD_DRAWER:
@@ -964,6 +1085,28 @@ if __name__ == "__main__":
             f" Loading lip:               {min(lip_rel):.0f}–{max(lip_rel):.0f} mm"
             f" above fruit bottom, climbing takes {hold_min:.2f} x fruit weight"
         )
+    print("=" * 56)
+    print(" RIGID CHAIN (details and printable parts: rigid_chain.py)")
+    print("=" * 56)
+    for line in rc.report_lines(
+        chain_free,
+        chain_back,
+        fruit_lens={"Avocado (Hass)": along_max},
+        head_g=HEAD_G,
+        pusher_t=PUSHER_T,
+    ):
+        print(line)
+    print(f" Links / pins:              {n_links}  (stroke {chain_len:.0f} mm)")
+    print(
+        f" Magazine (D x H):          {mag_v1 - mag_v0:.0f} x {mag_top - w_drive:.0f} mm,"
+        f" vertical, behind the sprocket"
+    )
+    print(
+        f" Carriage:                  {carriage_up:.0f} mm above, {carriage_down:.0f}"
+        f" mm below the fork's dock height, {2 * (col_u + COLUMN_T / 2):.0f} mm wide"
+    )
+    if col_u + COLUMN_T / 2 > row_cx(0):  # outer row centre -> side wall
+        print("   ! the Z columns hit the side wall at the outer rows")
     print("=" * 56)
     print(" SCAN STATION")
     print("=" * 56)

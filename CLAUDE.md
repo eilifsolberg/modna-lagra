@@ -13,8 +13,14 @@ are in `README.md` (Norwegian).
 - `src/modna/lagra/avocado_manager.py` — parametric concept model of the whole
   machine in build123d. One flat script: PARAMETERS → DERIVED QUANTITIES →
   geometry sections (housing, loading level, shelves with fork grooves,
-  top section, elevator with zip-chain fork carriage, scan station) → STEP
+  top section, elevator with rigid-chain fork carriage, scan station) → STEP
   export + capacity report.
+- `src/modna/lagra/rigid_chain.py` — the fork's 3D-printable rigid chain
+  (rigid downwards, curls upwards): link geometry, joint check, load/droop
+  model. The machine model imports it (`import rigid_chain as rc`) for the
+  chain, sprocket, vertical magazine and the report. Run on its own it writes
+  printable STLs (link, sprocket, bench clamp) and a bench-test STEP to
+  `./rigid_chain_print/`.
 - `camera-holder/` — Blender/STL/3MF/G-code files for a 3D-printed Raspberry Pi
   camera + LED holder. Versions are separate files (`_v2` … `_v8`); the
   changelog and print workflow (Blender → PrusaSlicer → Prusa printer) are in
@@ -29,6 +35,9 @@ Uses `uv` with Python 3.14.
   — writes `avocado_manager.step` to the current directory, prints the
   capacity report, and shows the model in the VS Code OCP CAD Viewer if its
   panel is open (otherwise prints a note and continues).
+- Chain parts + bench test: `uv run python src/modna/lagra/rigid_chain.py`
+  — after changing link geometry the joint check must report 0 overlap
+  curled up and a positive overlap bent down.
 - Format/lint: `uvx ruff format` and `uvx ruff check` (ruff is used via the
   VS Code extension; format on save is enabled).
 
