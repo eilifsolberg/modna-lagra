@@ -114,7 +114,7 @@ HEAD_G = 40  # fork head (pusher + tines) mass, g
 # Elevator (rear side). The shaft depth follows from the carriage stack below.
 ELEV_MODE = "scan"  # "fetch":  the fork has lifted the rearmost avocado of a lane
 # "insert": the fork carries an avocado to its place in the lane
-# "scan":   the carriage is up in the scan station
+# "scan":   an avocado is on the imaging module's rollers, the fork retracted
 # "free":   the carriage is free-standing at ELEV_X / ELEV_Z
 DOCK_SHELF = 2  # level the carriage is docked against (1 = lowest; the top
 # level is the loading drawer)
@@ -138,19 +138,39 @@ BEARING_W = 27
 Z_RAIL_T = 8
 COLUMN_T = 24
 
-# Scan station at the top of the elevator shaft (multispectral camera + LEDs).
-# The back of the machine is raised to make room for it above the height where
-# the carriage delivers to the customer section.
-SCAN_X = 0.5  # X position of the scan station (0..1 of the elevator's X travel)
-CAM_SIDE = 0  # camera's sideways offset from the avocado centre (0 = top-down)
-CAM_UP = 145  # camera's height above the avocado centre
+# Imaging drawer: a level of its own directly under the loading drawer. The
+# imaging module stands at its rear on the right (the rest is free), where
+# the fork serves it like a lane (a short bed with the shelves' rod
+# geometry). Staff pull the drawer out to clean, calibrate or swap the
+# module. It is inside the closed body, so it is dark and at storage
+# temperature. It rides on runners like the loading drawer.
+IM_PLATE_T = 6  # imaging drawer's plate
+MODULE_T = 4  # module base plate, bolted onto the drawer's plate
+IM_DRAWER_OPEN = 0.0  # snapshot: how far the imaging drawer is pulled out (0..1)
+RAIL_CLEAR = 15  # clearance between the carriage top and the upper X rail
+ROOF_T = 20  # roof of the raised back (over the elevator shaft)
+
+# Imaging module: two driven rollers (Ø ROD_D at ROD_PITCH, like the two rods
+# a stored fruit rests on) spin the fruit about its long axis in front of a
+# side camera on a motorised distance slide. There is no guard on the camera
+# side; a matte background panel on the far side carries the reference tile.
+# A narrow front stop keeps the spinning fruit from walking. The fruit's ends
+# are only seen at a slant; an end camera can be added later.
+BED_SPARE = 10  # bed length beyond the longest fruit
+BED_STOP_H = 15  # front stop above the roller tops
+STOP_W = 30  # front stop width (holds the rollers' bearings)
+BG_UP = 20  # background panel reaches this far above the largest fruit
+DRIVE_L = 15  # roller belt in front of the stop (its stepper is beside the bed)
+SPIN_STOPS = 6  # rotation stops per fruit (all LED bands are imaged at each)
 CAM_BODY = (60, 60, 25)  # camera + LED holder: width, height, depth (view axis)
-SCAN_CLEAR = 15  # clearance between camera and the carriage passing below it
-ROOF_T = 20  # roof of the raised back
+CAM_DIST_RANGE = (110, 220)  # side camera's slide range, its centre to the fruit's
+CAM_DIST = 140  # side camera distance in the snapshot (within CAM_DIST_RANGE)
+SLIDE_END = 35  # slide's stepper, beyond the camera's farthest position
 
 # Customer section on top
 TOP_SECTIONS = ["Soft ripe", "Firm ripe", "Ripe in a few days"]
 TOP_SLOPE_DEG = 6.0  # slopes towards the customer
+TRAY_T = 12  # tray thickness
 
 SHOW_HOUSING = True
 
@@ -376,20 +396,35 @@ load_pitch = max(
     lifted_top(tine_top_high_load) + CLEAR + bed if LOAD_DRAWER else 0,
 )
 storage_z0 = BASE_H
-storage_z1 = H - TOP_H
-avail_h = storage_z1 - storage_z0
-n_levels_fit = (
-    1 + int((avail_h - load_pitch) // level_pitch) if avail_h >= load_pitch else 0
-)
-n_shelves = min(N_SHELVES, n_levels_fit)  # levels in the model, incl. the drawer
-n_storage = n_shelves - 1 if LOAD_DRAWER and n_shelves else n_shelves
-drawer_pull = min(max(DRAWER_OPEN, 0), 1) * (shelf_len - DRAWER_KEEP)
+storage_z1 = H - TOP_H  # underside of the customer section at the front
 
 # Customer section on top
 top_z = H - TOP_H + 20
 top_len = shelf_y1 - WALL - 5
 top_slope = math.radians(TOP_SLOPE_DEG)
 top_drop = top_len * math.tan(top_slope)
+
+
+# Imaging drawer, on top of the storage levels (under the loading drawer).
+# The module's bed runs from its front stop (v_stop, in the carriage's v at
+# the scan dock) to the shelves' rear edge.
+v_stop = -(along_max + BED_SPARE)
+w_mod = max(  # module's height above the roller tops
+    lifted_top(tine_top_high),  # a fruit carried in
+    fruit_top_max + BG_UP,  # background panel
+    rest_nom + CAM_BODY[0] / 2,  # side camera
+)
+# its level: plate underside -> underside of the next level's bed
+im_h = IM_PLATE_T + MODULE_T + bed + w_mod + CLEAR
+avail_h = storage_z1 - storage_z0 - im_h  # for the rod-bed levels
+n_levels_fit = (
+    1 + int((avail_h - load_pitch) // level_pitch) if avail_h >= load_pitch else 0
+)
+n_shelves = min(N_SHELVES, n_levels_fit)  # levels in the model, incl. the drawer
+n_storage = n_shelves - 1 if LOAD_DRAWER and n_shelves else n_shelves
+drawer_pull = min(max(DRAWER_OPEN, 0), 1) * (shelf_len - DRAWER_KEEP)
+im_z0 = storage_z0 + n_storage * level_pitch  # imaging drawer plate underside
+im_pull = min(max(IM_DRAWER_OPEN, 0), 1) * (shelf_len - DRAWER_KEEP)
 
 
 # Elevator travel. The carriage is built around a dock origin at the shelf's
@@ -401,10 +436,6 @@ def fruit_on_tines(across, along, height, face):
 
 
 cr_w = lane_inner  # cradle inner width
-cradle_avo = (0, *fruit_on_tines(*SIZES[1], push_rest))
-cradle_top = max(  # top of the largest fruit
-    fruit_on_tines(ac, al, h, push_rest)[1] + h / 2 for ac, al, h in SIZES
-)
 x_travel0 = WALL + 30
 x_travel1 = W - WALL - 30
 z_travel0 = storage_z0 + bed  # lowest dock origin (the bottom level's rod tops)
@@ -424,23 +455,31 @@ carriage_down = 6 - w_fork + CHEEK_DOWN  # under the cradle base
 chain_free = cr_v0 - (v_deep + PUSHER_T)
 chain_back = v_drive - cr_v0
 
-# Scan station: the camera looks down (or sideways/down if CAM_SIDE > 0) into
-# the cradle. Its lowest point must clear the avocado in the cradle (and the
-# top magazine, if it reaches under the camera) when the carriage passes below
-# it on its way to the top section (fork high).
-cam_tilt = math.atan2(CAM_UP, CAM_SIDE)  # below horizontal
-cam_half_w = CAM_BODY[0] / 2 * math.cos(cam_tilt) + CAM_BODY[2] / 2 * math.sin(cam_tilt)
-lens_reach = (CAM_BODY[2] / 2 + 6) * math.sin(cam_tilt)  # lens tip
-cam_lo = cradle_avo[2] + CAM_UP - max(cam_half_w, lens_reach)  # rel. dock origin
-cam_hi = cradle_avo[2] + CAM_UP + cam_half_w
-scan_x = x_travel0 + SCAN_X * (x_travel1 - x_travel0)
-under_cam = cradle_top
-if cradle_avo[1] + CAM_BODY[1] / 2 > mag_v0:  # the camera reaches over the magazine
-    under_cam = max(under_cam, carriage_up)
-z_scan = z_deliver + lift + under_cam + SCAN_CLEAR - cam_lo
-z_travel1 = max(z_scan, z_deliver + lift)  # highest dock origin
-z_rail = z_travel1 + carriage_up + SCAN_CLEAR  # upper X rail (bottom)
-h_back = max(z_rail + 18, z_scan + cam_hi + 10) + ROOF_T
+# Imaging module's bed: built like a shelf on the drawer's plate, roller tops
+# `bed` above the rear support's underside, so the fork works as in a lane.
+# The carriage docks there like at a lane (origin at the bed's rear edge,
+# centred, at the roller tops), with the drawer closed.
+z_scan = im_z0 + IM_PLATE_T + MODULE_T + bed  # roller tops
+z_travel1 = max(z_scan, z_deliver) + lift  # highest dock origin (fork high)
+z_rail = z_travel1 + carriage_up + RAIL_CLEAR  # upper X rail (bottom)
+h_back = z_rail + 18 + ROOF_T
+z_pass = z_deliver + lifted_top(tine_top_high) + CLEAR  # over a fruit carried in
+
+# Imaging module, in the carriage's (u, v, w) system at the scan dock. The
+# rollers run from the front stop (v_stop) to the bed's rear edge (v = 0); a
+# fruit is put down 2 mm short of the stop, like at the front of a lane. The
+# side camera looks at it in +u, at its centre height, from the -u side.
+scan_avo = (v_stop + 2 + along_nom / 2, rest_nom)  # nominal fruit centre (v, w)
+u_bg = cr_w / 2  # background panel's inner face
+cam_lens = CAM_BODY[2] / 2 + 6  # camera body centre -> lens tip
+lens_gaps = [d - cam_lens - across_max / 2 for d in CAM_DIST_RANGE]
+u_slide0 = -(CAM_DIST_RANGE[1] + CAM_BODY[2] / 2 + SLIDE_END)  # slide's far end
+u_drive = u_bg + 5  # roller stepper, beside the bed behind the background panel
+# module footprint
+v_mod0 = v_stop - STOP_T - DRIVE_L - 2  # front
+u_mod0 = u_slide0 - 2  # camera side
+u_mod1 = u_drive + 30  # far side
+scan_x = W - WALL - max(reach, u_mod1 + CLEAR)  # fruit centre (X)
 # ---------------------------------------------------------------
 # HELPER FUNCTIONS
 # ---------------------------------------------------------------
@@ -474,8 +513,10 @@ if SHOW_HOUSING:
     add(box(0, 0, 0, WALL, D, H), "Side wall L", "#d9d9d9")
     add(box(W - WALL, 0, 0, WALL, D, H), "Side wall R", "#d9d9d9")
     add(box(WALL, 0, 0, inner_w, WALL, BASE_H), "Front plinth", "#bdbdbd")
-    # raised back over the elevator shaft, houses the scan station
+    # raised back over the elevator shaft (the chain magazine needs the
+    # height); its front panel clears a fruit carried in over a top tray
     back_y0 = shelf_y1 - WALL
+    pass_z = max(H, z_pass)
     back_d = D - back_y0
     add(box(WALL, D - WALL, 0, inner_w, WALL, h_back - ROOF_T), "Rear wall", "#cfcfcf")
     add(box(0, back_y0, H, WALL, back_d, h_back - H), "Raised back – side L", "#d9d9d9")
@@ -485,7 +526,7 @@ if SHOW_HOUSING:
         "#d9d9d9",
     )
     add(
-        box(WALL, back_y0, H, inner_w, WALL, h_back - ROOF_T - H),
+        box(WALL, back_y0, pass_z, inner_w, WALL, h_back - ROOF_T - pass_z),
         "Raised back – front",
         "#cfcfcf",
     )
@@ -605,10 +646,10 @@ dock_is_load = False
 push_face = push_rest  # pusher face in the snapshot (v)
 n_fill = min(round(per_lane_nom * FILL), per_lane_nom - 1)  # leave room to insert
 
-z = storage_z0 + bed  # rod tops of the bottom level
 for s in range(n_shelves):
     is_drawer = s >= n_storage  # the top level, when LOAD_DRAWER
-    base = z
+    # rod tops; the imaging drawer sits between the storage levels and the drawer
+    base = storage_z0 + bed + s * level_pitch + (im_h if is_drawer else 0)
     T = Pos(WALL, shelf_y0, base)
     local = []
 
@@ -704,8 +745,6 @@ for s in range(n_shelves):
     for shp, lab, col in local:
         add(T * shp, lab, col)
 
-    z += load_pitch if is_drawer else level_pitch
-
 # ---------------------------------------------------------------
 # CUSTOMER SECTION ON TOP
 # ---------------------------------------------------------------
@@ -715,14 +754,14 @@ top_colors = ["#2f3a1c", "#557a2b", "#86b83e"]
 for i, name in enumerate(TOP_SECTIONS):
     sx = WALL + i * sec_w
     # slot at the rear end, where the fork lowers the fruit onto the tray
-    tray = box(0, 0, -12, sec_w - 6, top_len, 12) - box(
+    tray = box(0, 0, -TRAY_T, sec_w - 6, top_len, TRAY_T) - box(
         (sec_w - 6) / 2 - notch, top_len - tine_len - 20, -13, 2 * notch, top_len, 14
     )
     tray = Pos(sx + 3, WALL, top_z) * Rot(TOP_SLOPE_DEG, 0, 0) * tray
     add(tray, f"Top section: {name}", "#8d6e63")
     # low front edge + divider
     add(
-        box(sx + 3, WALL - 10, top_z - 12, sec_w - 6, 10, 45),
+        box(sx + 3, WALL - 10, top_z - TRAY_T, sec_w - 6, 10, 45),
         f"Front edge {name}",
         "#5d4037",
     )
@@ -759,11 +798,13 @@ for i, name in enumerate(TOP_SECTIONS):
 # Deliver: the fork, high, reaches over the rear end of a top tray, the
 #   elevator lowers so the tines pass through the tray's slot, and the fruit
 #   rolls down to the customer.
-# Scan (ELEV_MODE = "scan"): the carriage waits under the camera at SCAN_X.
-#   Nothing is above the cradle, so the camera sees the whole fruit. Besides
-#   ripeness, the scan gives each fruit's size, which sets where it goes in a
-#   lane and where the fork picks it up again. Any fetched fruit can be driven
-#   past the camera again to check it is the expected one.
+# Scan (ELEV_MODE = "scan"): the carriage docks at the imaging module, in
+#   its drawer under the loading drawer, puts the fruit down on its rollers as in an insert and retracts the
+#   fork; it is then free for other moves while the fruit is imaged, and
+#   fetches it again as from a lane. Besides ripeness, the scan gives each
+#   fruit's size, which sets where it goes in a lane and where the fork picks
+#   it up again. Any stored fruit can be taken back to the module to check it
+#   is the expected one, or to follow its ripening.
 
 lifted = docked and dock_origin is not None  # fork high at a lane
 if ELEV_MODE == "scan":
@@ -982,19 +1023,142 @@ add(
 )
 
 # Avocado on the fork: resting in the cradle, lifted out of a lane (rear just
-# ahead of the pusher face), or on its way to its place in a lane
+# ahead of the pusher face), or on its way to its place in a lane. In "scan"
+# it is on the imaging module instead.
 face = push_face - 2 if ELEV_MODE == "fetch" and lifted else push_face
-add(
-    C * Pos(0, *fruit_on_tines(*SIZES[1], face)) * avocado_shape(),
-    "Avocado",
-    "#6b9a33",
-)
+if ELEV_MODE != "scan":
+    add(
+        C * Pos(0, *fruit_on_tines(*SIZES[1], face)) * avocado_shape(),
+        "Avocado",
+        "#6b9a33",
+    )
 
 # ---------------------------------------------------------------
-# SCAN STATION (multispectral camera + LEDs in the raised back)
+# IMAGING MODULE (on the imaging level)
 # ---------------------------------------------------------------
-# Built in the view system: the camera looks along -z, then it is tilted
-# cam_tilt below horizontal, looking towards -X into the cradle.
+# Built in the carriage's (u, v, w) system at the scan dock: origin at the
+# bed's rear edge, centred, at the roller tops. Everything stands on one base
+# plate with one connector (power + data), so the module lifts out of its
+# drawer as a unit. A cable loop behind the drawer lets it pull out while
+# connected.
+# Put down: the fork carries the fruit in high, as for an insert, to 2 mm
+#   short of the front stop, lowers it onto the rollers and retracts. The
+#   tines pass outside the rollers, the keel between them, and both over the
+#   rear support, as in a lane.
+# Spin: the rollers turn the fruit about its long axis in SPIN_STOPS steps.
+#   At each stop the side camera images every LED band. Its distance is set
+#   by its slide, per fruit
+#   or per run, and saved with the images.
+# Pick up: as a fetch.
+# Open questions for the bench: grip of the rollers on the skin (bare steel
+# or a thin sleeve - mind the 2 mm tine clearance), how far a lopsided fruit
+# walks along the rollers, whether it stays on them without a guard on the
+# camera side, and stray light from the customer section down the shaft.
+# Imaging drawer: a plate on fixed runners on the side walls, with a front
+# like the loading drawer's; the module moves with it
+im_y0 = shelf_y0 - FRONT_CLEAR  # plate front
+if n_shelves > n_storage:  # up to the loading drawer's front
+    im_front_top = im_z0 + im_h - RUNNER_H - 3
+else:  # up to the customer section
+    im_front_top = storage_z1 - 3
+im_front_z0 = im_z0 - RUNNER_H
+for shp, lab, col in (
+    (
+        box(WALL, im_y0, im_z0, inner_w, shelf_y1 - im_y0, IM_PLATE_T),
+        "Imaging drawer – plate",
+        "#bdbdbd",
+    ),
+    (
+        box(WALL, 0, im_front_z0, inner_w, WALL, im_front_top - im_front_z0),
+        "Imaging drawer – front",
+        "#444444",
+    ),
+    (
+        box(
+            W / 2 - 60,
+            -18,
+            (im_front_z0 + im_front_top) / 2 - 6,
+            120,
+            18,
+            12,
+        ),
+        "Imaging drawer – handle",
+        "#212121",
+    ),
+):
+    add(Pos(0, -im_pull, 0) * shp, lab, col)
+for rx in (WALL, W - WALL - RUNNER_W):
+    add(
+        box(rx, im_y0, im_z0 - RUNNER_H, RUNNER_W, shelf_y1 - im_y0, RUNNER_H),
+        "Imaging drawer – runner (fixed)",
+        "#9e9e9e",
+    )
+add(
+    box(WALL + RUNNER_W, im_y0, im_z0 - RUNNER_H, 12, 8, RUNNER_H),
+    "Sensor: imaging drawer closed",
+    "#212121",
+)
+
+M = Pos(scan_x, shelf_y1 - im_pull, z_scan)
+
+
+def mbox(u, v, w, du, dv, dw):
+    return M * box(u, v, w, du, dv, dw)
+
+
+w_base = -bed  # top of the base plate (the rear support stands on it)
+add(
+    mbox(u_mod0, v_mod0, w_base - MODULE_T, u_mod1 - u_mod0, -v_mod0, MODULE_T),
+    "Imaging module – base plate",
+    "#546e7a",
+)
+add(
+    mbox(-cr_w / 2, -XBAR_D, w_base, cr_w, XBAR_D, XBAR_H),
+    "Imaging bed – rear support (rollers rest on small bearings)",
+    "#78909c",
+)
+for sgn in (-1, 1):
+    add(
+        M
+        * Pos(sgn * ROD_PITCH / 2, v_stop / 2, -ROD_D / 2)
+        * Rot(90, 0, 0)
+        * Cylinder(ROD_D / 2, -v_stop),
+        "Imaging bed – roller (driven)",
+        "#90a4ae",
+    )
+add(
+    mbox(u_bg, v_stop, w_base, 3, -v_stop, fruit_top_max + BG_UP - w_base),
+    "Imaging bed – background panel (matte, also the far-side guard)",
+    "#37474f",
+)
+add(  # on the panel, above the largest fruit
+    mbox(u_bg - 1, scan_avo[0] - 20, fruit_top_max + 3, 1, 40, BG_UP - 6),
+    "Reference tile (white / grey)",
+    "#f5f5f5",
+)
+add(
+    mbox(-STOP_W / 2, v_stop - STOP_T, w_base, STOP_W, STOP_T, bed + BED_STOP_H),
+    "Imaging bed – front stop (roller bearings)",
+    "#c0392b",
+)
+v_belt = v_stop - STOP_T - DRIVE_L
+add(
+    mbox(-STOP_W / 2, v_belt, w_base, u_drive + 28 + STOP_W / 2, DRIVE_L, bed + 8),
+    "Imaging bed – roller belt (cover)",
+    "#455a64",
+)
+add(
+    mbox(u_drive, v_belt + DRIVE_L, w_base, 28, 45, 30),
+    "Imaging bed – roller stepper",
+    "#263238",
+)
+add(
+    mbox(u_mod0, v_mod0, w_base, 25, 15, 12),
+    "Imaging module – connector (power + data)",
+    "#212121",
+)
+
+# Cameras: Pi camera + LED holder, built looking along -z
 cw, ch, cd = CAM_BODY
 cam = [
     (Box(cw, ch, cd), "Multispectral camera (Pi + LED holder)", "#1f1f1f"),
@@ -1008,23 +1172,38 @@ for lx, ly in ((-1, -1), (-1, 1), (1, -1), (1, 1)):
             "#fff59d",
         )
     )
-cam_c = (scan_x + CAM_SIDE, shelf_y1 + cradle_avo[1], z_scan + cradle_avo[2] + CAM_UP)
-T = Pos(*cam_c) * Rot(0, 90 - math.degrees(cam_tilt), 0)
+side_cam = M * Pos(-CAM_DIST, scan_avo[0], scan_avo[1]) * Rot(0, -90, 0)  # looks +u
 for shp, lab, col in cam:
-    add(T * shp, lab, col)
-cam_top = z_scan + cam_hi
+    add(side_cam * shp, "Side camera – " + lab, col)
+
+# Distance slide for the side camera: a rail with a lead screw along u on the
+# base plate, a stepper at its far end, and a carriage under the camera
+u_near = -(CAM_DIST_RANGE[0] - cd / 2)  # camera front at its nearest
 add(
-    box(
-        cam_c[0] - 6,
-        cam_c[1] - 10,
-        cam_top - 10,
-        12,
+    mbox(
+        u_slide0 + SLIDE_END,
+        scan_avo[0] - 10,
+        w_base,
+        u_near - u_slide0 - SLIDE_END,
         20,
-        h_back - ROOF_T - cam_top + 10,
+        8,
     ),
-    "Camera bracket",
+    "Camera slide – rail + lead screw",
     "#78909c",
 )
+add(
+    mbox(u_slide0, scan_avo[0] - 14, w_base, SLIDE_END, 28, 30),
+    "Camera slide – stepper",
+    "#263238",
+)
+add(
+    mbox(-CAM_DIST - 12, scan_avo[0] - 12, w_base + 8, 24, 24, -w_base - 8),
+    "Camera slide – carriage",
+    "#455a64",
+)
+
+if ELEV_MODE == "scan":
+    add(M * Pos(0, *scan_avo) * avocado_shape(), "Avocado (being imaged)", "#6b9a33")
 
 # ---------------------------------------------------------------
 # EXPORT + REPORT
@@ -1119,16 +1298,45 @@ if __name__ == "__main__":
         f" mm below the fork's dock height, {2 * (col_u + COLUMN_T / 2):.0f} mm wide"
     )
     print("=" * 56)
-    print(" SCAN STATION")
+    print(" IMAGING DRAWER AND MODULE")
     print("=" * 56)
-    print(f" Height at the back:        {h_back:.0f} mm  (front {H} mm)")
-    print(f" Top-section delivery:      z = {z_deliver:.0f} mm")
-    print(f" Scan position:             z = {z_scan:.0f} mm")
     print(
-        f" Camera tilt / lens gap:    {math.degrees(cam_tilt):.0f}° / "
-        f"{math.hypot(CAM_SIDE, CAM_UP) - CAM_BODY[2] / 2 - 6 - AVO_D / 2:.0f} mm"
-        " to avocado surface"
+        f" Height at the back:        {h_back:.0f} mm  (front {H} mm; set by the chain"
+        " magazine)"
     )
+    print(
+        f" Imaging drawer:            level height {im_h:.0f} mm (a storage level"
+        f" {level_pitch:.0f}), "
+        + ("under the loading drawer" if LOAD_DRAWER else "on top")
+        + f", pulls out {shelf_len - DRAWER_KEEP:.0f} mm"
+    )
+    print(
+        f" Imaging module:            {u_mod1 - u_mod0:.0f} mm wide, on the right"
+        f" ({scan_x + u_mod0 - WALL:.0f} mm free on the left)"
+    )
+    if scan_x + u_mod0 < WALL:
+        print("   ! the imaging module is wider than the machine")
+    print(
+        f" Imaging bed:               2 rollers Ø{ROD_D} at {ROD_PITCH} mm,"
+        f" {-v_stop:.0f} mm long, top z = {z_scan:.0f}"
+    )
+    print(
+        f" Spin:                      {across_min / ROD_D:.1f}–{across_max / ROD_D:.1f}"
+        " roller turns per fruit turn"
+    )
+    print(
+        f" Rotation stops:            {SPIN_STOPS}  (all of the circumference within"
+        f" {180 / SPIN_STOPS:.0f}° of the side view)"
+    )
+    print(
+        f" Side camera (slide):       {CAM_DIST_RANGE[0]}–{CAM_DIST_RANGE[1]} mm from"
+        f" the fruit centre (shown at {CAM_DIST})"
+    )
+    print(f" Lens gap to largest fruit: {lens_gaps[0]:.0f}–{lens_gaps[1]:.0f} mm")
+    if lens_gaps[0] < 10:
+        print("   ! the side camera can come too close to a large fruit")
+    if not CAM_DIST_RANGE[0] <= CAM_DIST <= CAM_DIST_RANGE[1]:
+        print("   ! CAM_DIST is outside the slide range")
     print("=" * 56)
     print(" CAPACITY REPORT")
     print("=" * 56)
@@ -1165,7 +1373,7 @@ if __name__ == "__main__":
             f" pulls out {shelf_len - DRAWER_KEEP:.0f} mm"
         )
     if n_shelves < N_SHELVES:
-        need = load_pitch + (N_SHELVES - 1) * level_pitch + BASE_H + TOP_H
+        need = H + load_pitch + (N_SHELVES - 1) * level_pitch - avail_h
         print(f" ! {N_SHELVES} shelves require approx. {need:.0f} mm total height.")
     print("=" * 56)
 
