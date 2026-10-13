@@ -11,6 +11,12 @@ rigid_chain_print/
 # Blender backup files
 *.blend1
 
+# Blender and generated files, not currently tracked
+*.blend
+*.stl
+*.gcode
+*.3mf
+
 # Claude Code local settings
 .claude/settings.local.json
 
