@@ -22,3 +22,6 @@ rigid_chain_print/
 
 # macOS
 .DS_Store
+
+# Notes and ideas, explicitly add if want to track
+ideas/
