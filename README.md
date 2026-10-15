@@ -6,7 +6,10 @@
   modne og gjøres tilgjengelig for kunder i ulike soner oppå maskinen.
 - Andre avokadoer fordeles i ulike temperatursoner for modning basert
   på modenhetsgrad og forventet kjøp fra kunder av fast og myk moden avokado
-  fremover.
+  fremover. Dette er imidlertid en fremtidig plan, og vi trenger ikke ta
+  for mye hensyn til dette.
+- I denne modulen trenger vi ikke bry oss om alle detaljer ved skanningen,
+  dette håndteres andre steder.
 
 Litt mer detaljer:
 
@@ -19,19 +22,14 @@ Litt mer detaljer:
   for også å kunne styre plasseringen på hyllen. Heisen flytter
   avokadoen mellom hyllene, inkludert hyllene på toppen som er
   tilgjengelig for kundene.
+- Heisen er på maskinens bakside.
+- Avokadoene kan settes inn og tas ut med en gaffel som går i Y-retning.
 - Heisen trenger ikke romme mer enn én avokado, og skal ikke
   trenge noen gripemekanisme.
 - Jeg ønsker at hver hylle skal være delt inn i rader. Man kan
   f.eks. ha avokado av lik modenhetsgrad på hver rad. Det er
   akseptabelt å ha en LIFO-løsning siden man kan tenke seg
   at man fyller på og tømmer hele rader nært i tid.
-- Heisen er på maskinens bakside og lagringshyllene kan helle
-  svakt nedover mot heisen slik at avokadoen ruller eller sklir
-  til heisen.
-- Jeg vurderer å ha en vippemekanisme for å få avokadoen
-  fra heisen til hyllene. Avokadoen må imidlertid potensielt
-  dytte de andre avokadoene i raden (maks ca. 8 stk) for å
-  komme seg inn på raden.
 - De ansatte i butikken fyller på heisen forfra.
 - Maskinen skal helst kunne generaliseres til annen frukt, som f.eks.:
   mango, tomat, kiwi og pærer.
