@@ -31,6 +31,8 @@ are in `README.md` (Norwegian).
   changelog and print workflow (Blender → PrusaSlicer → Prusa printer) are in
   `camera-holder/README.md`. Binary files — don't edit, and don't commit
   unless asked.
+- `ideas/` — the user's scratch notes (git-ignored). Often stale or
+  superseded by the model and `README.md`; ignore unless asked to look.
 
 ## Commands
 
