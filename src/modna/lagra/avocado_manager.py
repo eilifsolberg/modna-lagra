@@ -176,12 +176,27 @@ BED_SPARE = 10  # bed length beyond the longest fruit
 BED_STOP_H = 15  # front stop above the roller tops
 STOP_W = 30  # front stop width, where it rises above the rollers
 BG_UP = 20  # background panel reaches this far above the largest fruit
+BG_T = 3  # background panel (aluminium: it also joins the bed to the load cell)
 DRIVE_L = 15  # roller belt in front of the stop (its stepper is beside the bed)
+ROLL_MOTOR = (28, 45, 30)  # roller stepper: width, length, height
 SPIN_STOPS = 6  # rotation stops per fruit (all LED bands are imaged at each)
 CAM_BODY = (60, 60, 25)  # camera + LED holder: width, height, depth (view axis)
 CAM_DIST_RANGE = (110, 220)  # side camera's slide range, its centre to the fruit's
 CAM_DIST = 140  # side camera distance in the snapshot (within CAM_DIST_RANGE)
 SLIDE_END = 35  # slide's stepper, beyond the camera's farthest position
+
+# Load cell: the whole imaging bed (rollers and their frame, front stop, belt,
+# roller stepper, background panel) floats WEIGH_GAP above the module's base
+# plate and rests only on a single-point bar load cell behind the background
+# panel. So every fruit is weighed at rest, and whatever it can touch is
+# weighed with it.
+LOAD_CELL = (75, 12.7, 12.7)  # bar load cell (YZC-131 size): length, width, height
+LOAD_CELL_KG = 3  # its rated load
+IM_BED_G = 700  # the imaging bed's mass, carried by it (estimate - weigh it)
+LC_SPACER = 3  # spacers under its fixed end and over its load end
+LC_ARM_T = 5  # weighing arm: a bracket on the panel, resting on the load end
+WEIGH_GAP = 2  # gap between the weighed bed and everything fixed
+LC_STOP_GAP = 0.3  # overload stops (screws) this far under the bed
 
 # Customer section on top: trays sloping towards the customer. A fruit lies
 # on them lengthwise, so it can't roll down - it slides, and the slope follows
@@ -453,7 +468,8 @@ tine_top_high_im = max(
 )
 lift_im = tine_top_high_im - tine_top_low_im
 im_drop = tine_top_low - tine_top_low_im  # dock origin below the roller tops
-# the rear support's crossbar is as far under the fork as in a lane
+# the rear support's crossbar is as far under the fork as in a lane (it is
+# WEIGH_GAP thinner, as the bed floats that far above the base plate)
 bed_im = xbar_gap + XBAR_H - w_fork + im_drop  # roller tops -> base plate top
 # sideways push (x the fruit's weight) that rolls a fruit up over a roller
 hold_im = min(im_roll_u / (rest_im(ac, h) + im_roll_r) for ac, _, h in SIZES)
@@ -531,11 +547,17 @@ u_bg = max(cr_w / 2, im_roll_u + im_roll_r + CLEAR)  # background panel, inner f
 cam_lens = CAM_BODY[2] / 2 + 6  # camera body centre -> lens tip
 lens_gaps = [d - cam_lens - across_max / 2 for d in CAM_DIST_RANGE]
 u_slide0 = -(CAM_DIST_RANGE[1] + CAM_BODY[2] / 2 + SLIDE_END)  # slide's far end
-u_drive = u_bg + 5  # roller stepper, beside the bed behind the background panel
+u_drive = u_bg + BG_T + 2  # roller stepper, beside the bed behind the panel
+# Load cell, along v behind the panel, between the roller stepper and the
+# bed's rear edge: its fixed end at the rear, its load end at the front
+lc_u0 = u_bg + BG_T + WEIGH_GAP  # its inner side
+lc_v0 = v_stop - STOP_T + ROLL_MOTOR[1] + WEIGH_GAP  # its front
+heaviest_g = max(m1 for _, m1, _ in rc.FRUIT.values())
+lc_use = (IM_BED_G + heaviest_g) / (1000 * LOAD_CELL_KG)  # share of its range
 # module footprint
 v_mod0 = v_stop - STOP_T - DRIVE_L - 2  # front
 u_mod0 = u_slide0 - 2  # camera side
-u_mod1 = u_drive + 30  # far side
+u_mod1 = max(u_drive + ROLL_MOTOR[0], lc_u0 + LOAD_CELL[1]) + 2  # far side
 scan_x = W - WALL - max(reach, u_mod1 + CLEAR)  # fruit centre (X)
 # ---------------------------------------------------------------
 # HELPER FUNCTIONS
@@ -1198,11 +1220,21 @@ if ELEV_MODE != "scan":
 #   short of the front stop, lowers it onto the rollers and retracts. The
 #   tines pass inside the rollers, the keel between them, and both over the
 #   rear support's crossbar, as in a lane.
+# Weigh: with the fork out and the rollers still. The bed is tared empty just
+#   before each put-down, so slow drift doesn't matter. The mass goes into the
+#   fruit's record (its loss over the days tracks ripening) and sets the
+#   chain's droop correction for its later carries.
 # Spin: the rollers turn the fruit about its long axis in SPIN_STOPS steps.
 #   At each stop the side camera images every LED band. Its distance is set
 #   by its slide, per fruit or per run, and saved with the images. The near
 #   roller hides the fruit's underside; the spin brings it into view.
 # Pick up: as a fetch.
+# The bed (rollers and their frame, front stop, belt, roller stepper and the
+# background panel) is one weighed unit. Its frame and the stepper hang on the
+# panel, and the panel rests on the load cell through the weighing arm. The
+# load cell's HX711 sits by the connector. Two screws under the bed's near
+# corners stop overloads (the fork crashing, a hand on the bed), and the
+# stepper's cable runs in a slack loop, so nothing else carries the bed.
 # Open questions for the bench: grip of the sleeves on the skin, how far a
 # lopsided fruit walks along the rollers, and stray light from the customer
 # section down the shaft.
@@ -1258,15 +1290,16 @@ def mbox(u, v, w, du, dv, dw):
     return M * box(u, v, w, du, dv, dw)
 
 
-w_base = -bed_im  # top of the base plate (the rear support stands on it)
+w_base = -bed_im  # top of the base plate (the bed floats WEIGH_GAP above it)
+w_bed = w_base + WEIGH_GAP  # the bed's underside
 u_sup = im_roll_u + im_roll_r  # the rollers' outer sides
 add(
     mbox(u_mod0, v_mod0, w_base - MODULE_T, u_mod1 - u_mod0, -v_mod0, MODULE_T),
     "Imaging module – base plate",
     "#546e7a",
 )
-add(
-    mbox(-u_sup, -XBAR_D, w_base, 2 * u_sup, XBAR_D, XBAR_H),
+add(  # out to the panel, which carries it
+    mbox(-u_sup, -XBAR_D, w_bed, u_bg + u_sup, XBAR_D, XBAR_H - WEIGH_GAP),
     "Imaging bed – rear support (crossbar under the fork)",
     "#78909c",
 )
@@ -1291,9 +1324,16 @@ for sgn in (-1, 1):
         "Imaging bed – roller (driven, silicone sleeve)",
         "#90a4ae",
     )
-add(
-    mbox(u_bg, v_stop, w_base, 3, -v_stop, fruit_top_max_im + BG_UP - w_base),
-    "Imaging bed – background panel (matte, also the far-side guard)",
+add(  # from the front bearing bar to the bed's rear edge
+    mbox(
+        u_bg,
+        v_stop - STOP_T,
+        w_bed,
+        BG_T,
+        STOP_T - v_stop,
+        fruit_top_max_im + BG_UP - w_bed,
+    ),
+    "Imaging bed – background panel (matte; far-side guard, carries the bed)",
     "#37474f",
 )
 add(  # on the panel, above the largest fruit
@@ -1301,8 +1341,8 @@ add(  # on the panel, above the largest fruit
     "Reference tile (white / grey)",
     "#f5f5f5",
 )
-add(
-    mbox(-u_sup, v_stop - STOP_T, w_base, 2 * u_sup, STOP_T, bed_im),
+add(  # out to the panel
+    mbox(-u_sup, v_stop - STOP_T, w_bed, u_bg + u_sup, STOP_T, -w_bed),
     "Imaging bed – front bearing bar",
     "#78909c",
 )
@@ -1313,12 +1353,12 @@ add(
 )
 v_belt = v_stop - STOP_T - DRIVE_L
 add(
-    mbox(-u_sup, v_belt, w_base, u_drive + 28 + u_sup, DRIVE_L, bed_im + 8),
+    mbox(-u_sup, v_belt, w_bed, u_drive + ROLL_MOTOR[0] + u_sup, DRIVE_L, 8 - w_bed),
     "Imaging bed – roller belt (cover)",
     "#455a64",
 )
 add(
-    mbox(u_drive, v_belt + DRIVE_L, w_base, 28, 45, 30),
+    mbox(u_drive, v_belt + DRIVE_L, w_bed, *ROLL_MOTOR),
     "Imaging bed – roller stepper",
     "#263238",
 )
@@ -1327,6 +1367,46 @@ add(
     "Imaging module – connector (power + data)",
     "#212121",
 )
+# Load cell: its fixed end (rear) on a spacer on the base plate, its load end
+# (front) under a spacer and the weighing arm, which is bolted to the panel
+lc_l, lc_w, lc_h = LOAD_CELL
+lc_end = lc_l / 4  # each end's mounting zone (its screw holes)
+w_lc = w_base + LC_SPACER  # its underside
+add(
+    mbox(lc_u0, lc_v0, w_lc, lc_w, lc_l, lc_h),
+    f"Load cell ({LOAD_CELL_KG} kg, single-point bar)",
+    "#cfd8dc",
+)
+add(
+    mbox(lc_u0, lc_v0 + lc_l - lc_end, w_base, lc_w, lc_end, LC_SPACER),
+    "Load cell – spacer (fixed end)",
+    "#455a64",
+)
+add(
+    mbox(lc_u0, lc_v0, w_lc + lc_h, lc_w, lc_end, LC_SPACER),
+    "Load cell – spacer (load end)",
+    "#455a64",
+)
+add(
+    mbox(
+        u_bg + BG_T,
+        lc_v0,
+        w_lc + lc_h + LC_SPACER,
+        lc_u0 + lc_w - u_bg - BG_T,
+        lc_end,
+        LC_ARM_T,
+    ),
+    "Imaging bed – weighing arm (on the panel, rests on the load cell)",
+    "#78909c",
+)
+for v in (v_stop - STOP_T / 2, -XBAR_D / 2):  # under the bed's near corners
+    add(
+        M
+        * Pos(-u_sup + 5, v, w_base + (WEIGH_GAP - LC_STOP_GAP) / 2)
+        * Cylinder(3, WEIGH_GAP - LC_STOP_GAP),
+        "Imaging module – overload stop (screw under the bed)",
+        "#212121",
+    )
 
 # Cameras: Pi camera + LED holder, built looking along -z
 cw, ch, cd = CAM_BODY
@@ -1511,6 +1591,15 @@ if __name__ == "__main__":
     )
     if hold_im < 0.5:
         print("   ! a fruit easily rolls off the rollers: set them wider apart")
+    print(
+        f" Load cell:                 {LOAD_CELL_KG} kg bar behind the panel; carries"
+        f" the bed (~{IM_BED_G} g) + fruit up to {heaviest_g} g ({lc_use:.0%} of"
+        " its range)"
+    )
+    if lc_use > 1:
+        print("   ! the load cell is too small for the bed plus the heaviest fruit")
+    if lc_v0 + LOAD_CELL[0] > 0:
+        print("   ! the load cell doesn't fit between the roller stepper and the shaft")
     print(
         f" Rotation stops:            {SPIN_STOPS}  (all of the circumference within"
         f" {180 / SPIN_STOPS:.0f}° of the side view)"
