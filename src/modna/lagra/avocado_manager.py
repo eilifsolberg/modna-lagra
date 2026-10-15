@@ -132,7 +132,8 @@ ELEV_Z = 0.55  # only for "free" (0..1)
 FORK_SNAPSHOT = 0.5  # only for "insert": how far towards its place the avocado is
 
 # Carriage, front to back: cradle pocket, pusher face, drive sprocket, then
-# the chain magazine - a straight vertical channel the chain stands up in.
+# the chain magazine - a straight vertical channel the chain stands up in
+# (or, with MAG_UTURN, two channels joined over the top).
 # Two Z columns, one each side of the magazine, carry the carriage on side
 # cheeks; the shaft depth follows from the sprocket and magazine. Its widest
 # part sets how close to a side wall a lane can be.
@@ -144,6 +145,10 @@ DRIVE_MOTOR = (20, 30, 30)  # chain drive motor + gears beside a cheek: width,
 # depth, height
 MAG_CLEAR = 3  # clearance around the sprocket and magazine
 MAG_WALL = 3  # magazine housing wall
+MAG_UTURN = False  # False: straight vertical magazine (the prototype).
+# True: the chain goes up a rear leg, half round an idler sprocket at the top
+# and down a front leg that hangs over the cradle's back - the same stroke in
+# about half the height, for one more sprocket and channel.
 CHEEK_T = 8  # carriage side cheeks
 CHEEK_DOWN = 25  # cheeks reach this far below the cradle base
 BEARING_T = 12  # Z carriage block (MGN12H-like): depth, width
@@ -392,6 +397,10 @@ v_drive = cr_v1 + rc.r_plate  # sprocket centre, clear of the pusher at rest
 # channel from mag_v0 to mag_v1 (outside of the walls), keels at the back
 mag_v0 = v_drive + rc.r_sprocket - rc.PIN_E - rc.MAG_FIT - MAG_WALL
 mag_v1 = mag_v0 + rc.chain_depth + 2 * (rc.MAG_FIT + MAG_WALL)
+# U-turn: an idler the size of the drive sprocket straight above it, so the
+# front leg is the rear leg mirrored about the sprocket centre
+mag2_v0, mag2_v1 = 2 * v_drive - mag_v1, 2 * v_drive - mag_v0
+r_cap = mag_v1 - v_drive  # outer radius of the U-turn's housing
 elev_depth = max(  # depth of the elevator shaft
     mag_v1 + MAG_CLEAR, cr_v1 + 2 * CHEEK_T + BEARING_T + Z_RAIL_T + COLUMN_T
 )
@@ -521,7 +530,28 @@ z_deliver = top_z + top_rise  # rear end of the top trays
 # magazine, which holds the full stroke.
 w_drive = w_chain + rc.w_pin + rc.r_sprocket  # sprocket centre
 chain_len = fork_reach + rc.PITCH  # stroke + a spare link
-mag_top = w_drive + chain_len + MAG_WALL
+quarter = math.pi / 2 * rc.r_sprocket  # chain path round the drive sprocket
+half_turn = math.pi * rc.r_sprocket  # ... and round the U-turn's idler
+if MAG_UTURN:
+    # The front leg's floor clears the drive sprocket under it and, over the
+    # cradle's back, the pusher at rest and the top of the largest fruit.
+    # With the fork home the chain fills the rear leg, the turn and the front
+    # leg down to its floor (a pitch extra for the link count rounding up).
+    leg2_floor = (
+        max(
+            w_drive + rc.r_plate,
+            tine_top_low + PUSHER_H,
+            lifted_top(tine_top_low),
+        )
+        + MAG_CLEAR
+        + MAG_WALL
+    )
+    w_tail = leg2_floor + rc.PIN_E + rc.MAG_FIT  # lowest the tail pin may reach
+    stored = chain_len + rc.PITCH - quarter - half_turn  # in the two legs
+    w_turn = (stored + w_drive + w_tail) / 2  # idler centre
+    mag_top = w_turn + r_cap
+else:
+    mag_top = w_drive + chain_len + MAG_WALL
 carriage_up = mag_top  # carriage top above the dock origin
 carriage_down = 6 - w_fork + CHEEK_DOWN  # under the cradle base
 # Loads on the chain at full reach: it sticks out beyond the cradle's front
@@ -942,8 +972,9 @@ for i, name in enumerate(TOP_SECTIONS):
 # The fork is the only actuator on the carriage: two tines with a pusher face,
 # pushed and pulled by a rigid chain (rigid_chain.py). The chain runs back
 # with its keel on the cradle base to a sprocket pair on its pin ends, turns a
-# quarter up round it and stands in a vertical magazine, so a shallow carriage
-# reaches the front of a lane. Lifting is done by the Z axis, whose two
+# quarter up round it and stands in a vertical magazine (MAG_UTURN: goes on
+# half round an idler and down a front leg), so a shallow carriage reaches
+# the front of a lane. Lifting is done by the Z axis, whose two
 # columns stand either side of the magazine.
 # Fetch / insert: see the shelf section. The snapshots show the fork high,
 #   with the rearmost avocado lifted, or on its way to its place. The chain
@@ -981,9 +1012,10 @@ def cbox(u, v, w, du, dv, dw):
 def chain_pins(v_first, n):
     """Pin centres (v, w) of the chain in the carriage frame: from the first pin,
     straight back to the sprocket, a quarter turn up round it, then straight
-    up the magazine. Each pin is one pitch (chord) from the last."""
+    up the magazine (with MAG_UTURN: up the rear leg, half round the idler
+    and down the front leg). Each pin is one pitch (chord) from the last."""
     r, w_line = rc.r_sprocket, w_chain + rc.w_pin
-    quarter = math.pi / 2 * r
+    leg1 = w_turn - w_drive if MAG_UTURN else math.inf
 
     def at(t):  # t: path length from the sprocket's tangent point
         if t <= 0:
@@ -991,7 +1023,14 @@ def chain_pins(v_first, n):
         if t <= quarter:
             a = t / r
             return (v_drive + r * math.sin(a), w_drive - r * math.cos(a))
-        return (v_drive + r, w_drive + t - quarter)
+        t -= quarter
+        if t <= leg1:
+            return (v_drive + r, w_drive + t)
+        t -= leg1
+        if t <= half_turn:
+            a = t / r
+            return (v_drive + r * math.cos(a), w_turn + r * math.sin(a))
+        return (v_drive - r, w_turn - (t - half_turn))
 
     t, pts = v_first - v_drive, [at(v_first - v_drive)]
     while len(pts) < n:
@@ -1025,20 +1064,18 @@ for sgn in (-1, 1):
     )
 
 # Carriage: side cheeks from the cradle back to the Z bearing blocks, either
-# side of the sprocket and magazine
+# side of the sprocket and magazine. With MAG_UTURN they reach forward over
+# the cradle, above the front leg's floor (so clear of the fruit), and hold
+# the front leg.
 for sgn in (-1, 1):
-    add(
-        cbox(
-            cheek_u if sgn > 0 else -cheek_u - CHEEK_T,
-            cr_v1,
-            -carriage_down,
-            CHEEK_T,
-            v_bear - cr_v1,
-            carriage_up + carriage_down,
-        ),
-        "Carriage – side cheek",
-        "#37474f",
+    u0 = cheek_u if sgn > 0 else -cheek_u - CHEEK_T
+    cheek = cbox(
+        u0, cr_v1, -carriage_down, CHEEK_T, v_bear - cr_v1, carriage_up + carriage_down
     )
+    if MAG_UTURN:
+        w0 = leg2_floor - MAG_WALL
+        cheek += cbox(u0, mag2_v0, w0, CHEEK_T, cr_v1 - mag2_v0, carriage_up - w0)
+    add(cheek, "Carriage – side cheek", "#37474f")
     for w0 in (-carriage_down + 5, carriage_up - 35):
         add(
             cbox(sgn * col_u - BEARING_W / 2, v_bear, w0, BEARING_W, BEARING_T, 30),
@@ -1162,28 +1199,55 @@ for q in pins:
     add(C * Pos(0, *q) * to_chain * pin, "Rigid chain – pin", "#90a4ae")
 
 # Drive: a sprocket pair on the pin ends (it also holds the chain down
-# against the fruit's lever), motor outside a cheek, and the magazine
-for sgn in (-1, 1):
-    u_c = sgn * (rc.CHAIN_W / 2 + rc.FIT_U + rc.SPROCKET_T / 2)
-    add(
-        C
-        * Pos(u_c, v_drive, w_drive)
-        * Rot(0, 90, 0)
-        * Cylinder(rc.r_plate, rc.SPROCKET_T),
-        "Chain drive – sprocket (on the pin ends)",
-        "#546e7a",
-    )
+# against the fruit's lever), motor outside a cheek, and the magazine. With
+# MAG_UTURN the same sprocket, free-running, is the idler at the top.
+sprockets = [(w_drive, "Chain drive – sprocket (on the pin ends)")]
+if MAG_UTURN:
+    sprockets.append((w_turn, "Chain magazine – idler sprocket at the U-turn"))
+for w_s, name in sprockets:
+    for sgn in (-1, 1):
+        u_c = sgn * (rc.CHAIN_W / 2 + rc.FIT_U + rc.SPROCKET_T / 2)
+        add(
+            C
+            * Pos(u_c, v_drive, w_s)
+            * Rot(0, 90, 0)
+            * Cylinder(rc.r_plate, rc.SPROCKET_T),
+            name,
+            "#546e7a",
+        )
 dm_w, dm_d, dm_h = DRIVE_MOTOR
 add(
     cbox(cheek_u + CHEEK_T, v_drive - dm_d / 2, w_drive - dm_h / 2, dm_w, dm_d, dm_h),
     "Chain drive – motor + gears",
     "#263238",
 )
+leg1_top = w_turn if MAG_UTURN else mag_top
 add(
-    cbox(-mag_w / 2, mag_v0, w_drive, mag_w, mag_v1 - mag_v0, mag_top - w_drive),
-    "Chain magazine (vertical channel)",
+    cbox(-mag_w / 2, mag_v0, w_drive, mag_w, mag_v1 - mag_v0, leg1_top - w_drive),
+    "Chain magazine – rear leg (up)"
+    if MAG_UTURN
+    else "Chain magazine (vertical channel)",
     ("#78909c", 0.3),
 )
+if MAG_UTURN:
+    add(
+        cbox(
+            -mag_w / 2,
+            mag2_v0,
+            leg2_floor - MAG_WALL,
+            mag_w,
+            mag2_v1 - mag2_v0,
+            w_turn - leg2_floor + MAG_WALL,
+        ),
+        "Chain magazine – front leg (down, over the cradle's back)",
+        ("#78909c", 0.3),
+    )
+    cap = C * Pos(0, v_drive, w_turn) * Rot(0, 90, 0) * Cylinder(r_cap, mag_w)
+    add(
+        cap & cbox(-mag_w / 2, v_drive - r_cap, w_turn, mag_w, 2 * r_cap, r_cap),
+        "Chain magazine – U-turn housing",
+        ("#78909c", 0.3),
+    )
 add(
     cbox(
         -mag_w / 2,
@@ -1539,10 +1603,32 @@ if __name__ == "__main__":
     ):
         print(line)
     print(f" Links / pins:              {n_links}  (stroke {chain_len:.0f} mm)")
-    print(
-        f" Magazine (D x H):          {mag_v1 - mag_v0:.0f} x {mag_top - w_drive:.0f} mm,"
-        f" vertical, behind the sprocket"
-    )
+    tail = chain_pins(push_rest + PUSHER_T + HEAD_L, n_links + 1)[-1]  # fork home
+    if MAG_UTURN:
+        print(
+            f" Magazine (D x H):          {mag_v1 - mag2_v0:.0f} x"
+            f" {mag_top - w_drive:.0f} mm, U-turn over an idler"
+            f" (legs {w_turn - w_drive:.0f} / {w_turn - leg2_floor:.0f} mm)"
+        )
+        fruit_gap = leg2_floor - MAG_WALL - lifted_top(tine_top_low)
+        sprocket_gap = leg2_floor - MAG_WALL - (w_drive + rc.r_plate)
+        print(
+            f" Front leg over the cradle: floor {fruit_gap:.0f} mm over the largest"
+            f" fruit, {sprocket_gap:.0f} over the drive sprocket; tail"
+            f" {tail[1] - rc.PIN_E - leg2_floor:.0f} mm off the floor, fork home"
+        )
+        leg2_g = rc.q_chain * (w_turn - leg2_floor) / 9.81e-3
+        print(
+            f" Chain in the front leg:    up to {leg2_g:.0f} g, lifted back over"
+            " the idler as the fork reaches out"
+        )
+    else:
+        print(
+            f" Magazine (D x H):          {mag_v1 - mag_v0:.0f} x"
+            f" {mag_top - w_drive:.0f} mm, vertical, behind the sprocket (tail"
+            f" {mag_top - MAG_WALL - tail[1] - rc.PIN_E:.0f} mm under its top,"
+            " fork home)"
+        )
     print(
         f" Carriage:                  {carriage_up:.0f} mm above, {carriage_down:.0f}"
         f" mm below the fork's dock height, {2 * car_half:.0f} mm wide"
