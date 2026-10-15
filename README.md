@@ -13,7 +13,9 @@
 
 Litt mer detaljer:
 
-- Maskinens mål kan f.eks. være ca 60 cm bred og lang, og 80 cm høy.
+- Maskinens mål kan f.eks. være ca 70 cm bred og lang, og 80 cm høy.
+  - Dette er veldig omtrentelig og kan justeres ettersom hensiktsmessig.
+  - Bakenden av maskinen kan være høyere, men frukten kan ikke ligge høyere enn at kundene kan rekke den.
 - Jeg ønsker tre ulike seksjoner på toppen med avokadoer: Myke modne,
   faste modne og modne om noen dager.
 - Jeg ønsker ca. 3-8 hyller inni maskinen for lagring av avokado.
