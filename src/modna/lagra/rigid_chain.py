@@ -60,7 +60,7 @@ CHAIN_W = 16  # width of the chain body
 CHAIN_H = 31  # height; stiffness grows with its cube
 TONGUE_W = 7  # middle layer (tongue); the two outer layers are the clevis
 KEEL_W = 4  # keel under the tongue: width (fits a rod gap with clearance)
-KEEL_H = 7  # ... depth below the bottom face
+KEEL_H = 8  # ... depth below the bottom face (down to the fork's tine bottoms)
 KEEL_END = 1  # ... stops this short of each link end, so keels never touch
 KEEL_CHAMFER = 1.5  # ... chamfered ends, to ride onto the carriage's support
 
@@ -106,11 +106,11 @@ FRUIT = {
 }
 
 # Stand-alone run (the machine model passes its own numbers)
-REACH_FREE = 228  # fork reach beyond the carriage's front support (mm)
+REACH_FREE = 325  # fork reach beyond the carriage's front support (mm)
 BACK_SPAN = 150  # front support -> sprocket hold-down (mm)
 HEAD_G = 40  # fork head (pusher + tines) mass, g
 PUSHER_T = 6
-BENCH_LINKS = 22  # links in the bench test bar
+BENCH_LINKS = 30  # links in the bench test bar
 CLAMP_LINKS = 3  # links held in the bench clamp
 
 # ---------------------------------------------------------------
