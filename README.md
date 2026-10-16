@@ -39,5 +39,3 @@ er strenge krav som må følges.
 - Jeg ønsker at systemet skal være relativt billig og enkelt, gjerne så
   en prototype kan gjennomføres som et DIY prosjekt; samtidig som det kan
   skalere til et større prosjekt senere.
-
-
