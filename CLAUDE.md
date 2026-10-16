@@ -6,7 +6,7 @@ Modna Lagra ("ripe storage"): a DIY-prototype machine that scans avocados with a
 multispectral camera, stores them on sloped shelves in temperature zones, and
 moves them with an X/Z elevator at the back to customer-facing sections on top.
 Should generalise to other fruit (mango, tomato, kiwi, pear). Full requirements
-are in `README.md` (Norwegian).
+are in `README.md`.
 
 ## Layout
 
@@ -53,7 +53,7 @@ that it exits cleanly and the capacity report numbers make sense.
 
 ## Conventions
 
-- Code, comments and part labels are in English; `README.md` is Norwegian.
+- Code, comments, part labels and `README.md` are in English.
 - Units are millimetres. Axes: X = width (left→right), Y = depth
   (0 = front/customer, D = back/elevator), Z = height (0 = floor).
 - All dimensions go in the UPPER_CASE parameters block at the top of the
