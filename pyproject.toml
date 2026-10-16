@@ -1,7 +1,7 @@
 [project]
 name = "modna-lagra"
 version = "0.1.0"
-description = "Add your description here"
+description = "Parametric concept model of a machine that scans, ripens and sorts avocados"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
