@@ -11,8 +11,8 @@
 - I denne modulen trenger vi ikke bry oss om alle detaljer ved skanningen,
   dette håndteres andre steder.
 
-Litt mer detaljer:
-
+Under er mer detaljer for forslag til implementasjon. Ingenting av dette
+er strenge krav som må følges.
 - Maskinens mål kan f.eks. være ca 70 cm bred og lang, og 80 cm høy.
   - Dette er veldig omtrentelig og kan justeres ettersom hensiktsmessig.
   - Bakenden av maskinen kan være høyere, men frukten kan ikke ligge høyere enn at kundene kan rekke den.
@@ -32,6 +32,7 @@ Litt mer detaljer:
   f.eks. ha avokado av lik modenhetsgrad på hver rad. Det er
   akseptabelt å ha en LIFO-løsning siden man kan tenke seg
   at man fyller på og tømmer hele rader nært i tid.
+- Hyllene må være matsikre og bør være enkle å rengjøre
 - De ansatte i butikken fyller på heisen forfra.
 - Maskinen skal helst kunne generaliseres til annen frukt, som f.eks.:
   mango, tomat, kiwi og pærer.
@@ -39,9 +40,4 @@ Litt mer detaljer:
   en prototype kan gjennomføres som et DIY prosjekt; samtidig som det kan
   skalere til et større prosjekt senere.
 
-Krav til hyllene:
 
-- Jeg ønsker at den skal kunne lages i ulike former
-- Ha så lite friksjon som mulig både for avokado og mango,
-  slik at disse kan skli med lav vinkel ved hjelp av tyngdekraften.
-- Være matsikker og enkel å rengjøre.
