@@ -6,6 +6,19 @@ to customer-facing sections on top, sorted by ripeness. This repository holds
 a parametric CAD concept model of the machine (build123d) and its 3D-printed
 parts.
 
+The machine is meant to be used in grocery stores.
+The goal of the design has several purposes:
+- Reduce the amount of food waste. This is done by:
+  - By presenting the ripe avocados, making sure these are sold.
+  - Dynamic ripening through e.g. reduced temperature if many
+    avocados in storage.
+- Increase customer satisfaction. Customers should easily get the
+  avocados with the desired ripening level.
+- Increased avocado sales. If there are not any ripe avocados,
+  or they are difficult to find, customers may not buy any.
+  This is achived both through the dynamic ripening and making
+  it easier for the customer throught the sorting.
+
 ## Getting started
 
 Requires [uv](https://docs.astral.sh/uv/) (Python 3.14).
@@ -60,10 +73,11 @@ Suggested implementation:
   Y direction.
 - The elevator doesn't need to hold more than one avocado, and shouldn't
   need any gripping mechanism.
-- I want each shelf to be divided into lanes. One could, for example,
-  keep avocados of the same ripeness in each lane. A LIFO solution is
-  acceptable, since whole lanes will likely be filled and emptied close
-  together in time.
+- I want each shelf to be divided into lanes. This makes it easier to
+  keep track of the location of each avocado.
+- The avocados may be rescanned and moved around at times to keep track
+  of progress and to meet the goals for number of avocados at each
+  ripening level.
 - The shelves must be food-safe and should be easy to clean.
 - The store staff load the machine from the front.
 - Ideally the machine should generalise to other fruit, such as mango,
